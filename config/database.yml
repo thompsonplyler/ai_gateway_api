@@ -1,0 +1,20 @@
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  username: thompson      # Your PostgreSQL username
+  password: password # Your PostgreSQL password
+  host: localhost
+
+development:
+  <<: *default
+  database: ai_gateway_api_development
+
+test:
+  <<: *default
+  database: ai_gateway_api_test
+
+production:
+  <<: *default
+  # Will be configured via DATABASE_URL environment variable on Render
+  url: <%= ENV['DATABASE_URL'] %>
