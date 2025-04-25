@@ -37,11 +37,15 @@ gem "bootsnap", require: false
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
 # gem "rack-cors"
 
+# AI Service Clients
+gem "ruby-openai", "~> 6.3"
+
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ]
   gem "rspec-rails", "~> 6.0" # Use the latest appropriate version
   gem "shoulda-matchers", "~> 5.0" # Add shoulda-matchers for enhanced testing
+  gem "webmock", "~> 3.19" # For mocking external HTTP requests in tests
 end
 
 group :development do

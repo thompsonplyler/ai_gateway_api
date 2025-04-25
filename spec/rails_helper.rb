@@ -1,6 +1,7 @@
 # This file is copied to spec/ when you run 'rails generate rspec:install'
 require 'sidekiq/testing'
 require 'spec_helper'
+require 'webmock/rspec' # Load WebMock for RSpec integration
 
 ENV['RAILS_ENV'] ||= 'test'
 require_relative '../config/environment'
