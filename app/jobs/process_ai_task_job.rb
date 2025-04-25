@@ -27,7 +27,9 @@ class ProcessAiTaskJob < ApplicationJob
       # --- End Debugging ---
 
       # Initialize OpenAI client
-      client = OpenAI::Client.new(access_token: Rails.application.credentials.openai![:api_key]) # Use bang! for clearer error if openai is nil
+      # Prioritize ENV var for production (e.g., Render), fallback to credentials for local dev
+      access_token = ENV.fetch('OPENAI_API_KEY', nil) || Rails.application.credentials.openai![:api_key]
+      client = OpenAI::Client.new(access_token: access_token)
 
       # Make the API call
       response = client.chat(parameters: {
