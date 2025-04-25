@@ -47,7 +47,7 @@ services:
 
   - type: psql # Managed PostgreSQL instance
     name: ai-gateway-db
-    databaseName: ai_gateway_api_production # Choose a production DB name
+    databaseName: ai_gateway_api_production # Choose a production D B name
     user: ai_gateway_user # Choose a production DB user
     plan: free # Or choose a paid plan
     # version: "15" # Optional: Specify PostgreSQL version
