@@ -46,9 +46,9 @@ services:
     plan: free # Or choose a paid plan
 
   
-      - type: postgres # <--- CORRECT TYPE
-        name: ai-gateway-db
-        databaseName: ai_gateway_api_production # You can keep this or Render can auto-generate one
-        user: ai_gateway_user               # You can keep this or Render can auto-generate one
-        plan: free # Or choose a paid plan
-        # version: "15" # Optional: Specify PostgreSQL version
+  - type: postgres # <--- CORRECT TYPE
+    name: ai-gateway-db
+    databaseName: ai_gateway_api_production # You can keep this or Render can auto-generate one
+    user: ai_gateway_user               # You can keep this or Render can auto-generate one
+    plan: free # Or choose a paid plan
+    # version: "15" # Optional: Specify PostgreSQL version
