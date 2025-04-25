@@ -1,0 +1,53 @@
+# render.yaml
+services:
+  - type: web # Your Rails API server
+    name: ai-gateway-api-web
+    env: ruby
+    buildCommand: "./bin/render-build.sh"
+    startCommand: "bundle exec puma -C config/puma.rb"
+    envVars:
+      - key: RAILS_MASTER_KEY
+        sync: false # Keep master key secret
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-gateway-db # Matches database service name below
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: ai-gateway-redis # Matches redis service name below
+          property: connectionString
+      - key: RAILS_SERVE_STATIC_FILES # Usually needed even for APIs if using health checks etc.
+        value: true
+      # Add other ENV VARS like AI_API_KEY here, set values in Render UI
+
+  - type: worker # Your Sidekiq background worker
+    name: ai-gateway-worker
+    env: ruby
+    buildCommand: "bundle install" # Worker doesn't need full build if web does assets/migrations
+    startCommand: "bundle exec sidekiq"
+    envVars:
+      - key: RAILS_MASTER_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-gateway-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: ai-gateway-redis
+          property: connectionString
+      # Add other ENV VARS shared with web service
+
+  - type: redis # Managed Redis instance
+    name: ai-gateway-redis
+    ipAllowList: [] # Allow all IPs (or restrict to your Render services)
+    plan: free # Or choose a paid plan
+
+  - type: psql # Managed PostgreSQL instance
+    name: ai-gateway-db
+    databaseName: ai_gateway_api_production # Choose a production DB name
+    user: ai_gateway_user # Choose a production DB user
+    plan: free # Or choose a paid plan
+    # version: "15" # Optional: Specify PostgreSQL version
