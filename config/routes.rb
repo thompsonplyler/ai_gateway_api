@@ -6,7 +6,16 @@ Rails.application.routes.draw do
 
   namespace :api do
     namespace :v1 do
-      resources :ai_tasks, only: [:create]
+      # AI Tasks: Add index and show
+      resources :ai_tasks, only: [:create, :index, :show]
+
+      # User Registration
+      resources :users, only: [:create]
+
+      # Session/Token Management (Login/Logout)
+      resource :session, only: [:create, :destroy] # Use singular resource for non-ID-based session
+      # Alternatively: post '/login', to: 'sessions#create'
+      #              delete '/logout', to: 'sessions#destroy'
     end
   end
 
