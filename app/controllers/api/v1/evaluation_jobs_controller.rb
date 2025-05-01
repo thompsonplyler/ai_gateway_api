@@ -66,10 +66,6 @@ module Api
         end
         response_data[:individual_videos] = individual_videos if individual_videos.any?
 
-        if @evaluation_job.status == 'completed' && @evaluation_job.concatenated_video.attached?
-          response_data[:concatenated_video_url] = url_for(@evaluation_job.concatenated_video)
-        end
-
         render json: response_data, status: :ok
 
       rescue ActiveRecord::RecordNotFound

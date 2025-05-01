@@ -5,7 +5,6 @@ ruby "3.2.2"
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
 gem "rails", "~> 7.1.3"
 gem "sidekiq", "~> 7.0"
-gem 'streamio-ffmpeg'
 
 # Use postgresql as the database for Active Record
 gem "pg", "~> 1.1"
@@ -33,14 +32,15 @@ gem "tzinfo-data", platforms: %i[ windows jruby ]
 gem "bootsnap", require: false
 
 # Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
-# gem "image_processing", "~> 1.2"
+gem "image_processing", "~> 1.2"
 
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
 # gem "rack-cors"
 
 # AI Service Clients
 gem "ruby-openai", "~> 8.1"
-gem "streamio-ffmpeg"
+gem "rub"
+gem "httparty"
 gem "elevenlabs"
 
 # Gems used only for assets and not required

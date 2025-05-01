@@ -4,11 +4,10 @@ class EvaluationJob < ApplicationRecord
   # === ASSOCIATIONS ===
   has_one_attached :powerpoint_file # The original PPT file submitted
   has_many :evaluations, dependent: :destroy # Each job has multiple evaluation tasks (e.g., for different agents)
-  has_one_attached :concatenated_video # The final video combining all evaluations
 
   # === ATTRIBUTES ===
   # Status field to track progress
-  # Possible values: 'pending', 'processing_evaluations', 'concatenating', 'completed', 'failed'
+  # Possible values: 'pending', 'processing_evaluations', 'completed', 'failed'
   attribute :status, :string, default: 'pending'
 
   # Store any overall error message
@@ -25,17 +24,6 @@ class EvaluationJob < ApplicationRecord
   after_create_commit :initialize_evaluations_and_start_processing
 
   # === INSTANCE METHODS ===
-  def check_and_start_concatenation
-    # Check if all child evaluations have completed their video generation
-    # Ensure we only proceed if the current status isn't already completed or failed
-    return unless status == 'processing_evaluations'
-
-    if evaluations.all? { |e| e.status == 'video_generated' }
-      update(status: 'concatenating')
-      # Enqueue concatenation job
-      VideoConcatenationJob.perform_later(id)
-    end
-  end
 
   private
 
