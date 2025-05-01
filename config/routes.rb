@@ -17,8 +17,11 @@ Rails.application.routes.draw do
       # Alternatively: post '/login', to: 'sessions#create'
       #              delete '/logout', to: 'sessions#destroy'
 
-      # Add routes for evaluation jobs
+      # Multi-step Video Evaluation Jobs
       resources :evaluation_jobs, only: [:create, :show]
+
+      # Simple Text Evaluation Jobs
+      resources :text_evaluation_jobs, only: [:create, :show]
     end
   end
 

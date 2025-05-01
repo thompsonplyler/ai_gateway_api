@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_05_01_123334) do
+ActiveRecord::Schema[7.1].define(version: 2025_05_01_191400) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -81,6 +81,25 @@ ActiveRecord::Schema[7.1].define(version: 2025_05_01_123334) do
     t.index ["evaluation_job_id"], name: "index_evaluations_on_evaluation_job_id"
   end
 
+  create_table "text_evaluation_jobs", force: :cascade do |t|
+    t.string "status"
+    t.text "text_result"
+    t.text "error_message"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "text_evaluations", force: :cascade do |t|
+    t.bigint "text_evaluation_job_id", null: false
+    t.string "agent_identifier"
+    t.string "status"
+    t.text "text_result"
+    t.text "error_message"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["text_evaluation_job_id"], name: "index_text_evaluations_on_text_evaluation_job_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "email"
     t.string "password_digest"
@@ -94,4 +113,5 @@ ActiveRecord::Schema[7.1].define(version: 2025_05_01_123334) do
   add_foreign_key "ai_tasks", "users"
   add_foreign_key "api_tokens", "users"
   add_foreign_key "evaluations", "evaluation_jobs"
+  add_foreign_key "text_evaluations", "text_evaluation_jobs"
 end
