@@ -16,6 +16,9 @@ Rails.application.routes.draw do
       resource :session, only: [:create, :destroy] # Use singular resource for non-ID-based session
       # Alternatively: post '/login', to: 'sessions#create'
       #              delete '/logout', to: 'sessions#destroy'
+
+      # Add routes for evaluation jobs
+      resources :evaluation_jobs, only: [:create, :show]
     end
   end
 
