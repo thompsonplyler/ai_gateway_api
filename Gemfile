@@ -35,10 +35,11 @@ gem "bootsnap", require: false
 gem "image_processing", "~> 1.2"
 
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
-# gem "rack-cors"
+gem "rack-cors"
 
 # AI Service Clients
 gem "ruby-openai", "~> 8.1"
+gem 'ollama-ai', '~> 1.3.0'
 gem "rub"
 gem "httparty"
 gem "elevenlabs"

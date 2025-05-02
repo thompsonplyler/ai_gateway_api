@@ -26,11 +26,7 @@ class TtvGenerationJob < ApplicationJob
   HEDRA_BASE_URL = 'https://mercury.dev.dream-ai.com/api' # Base URL from docs
 
   # Mapping from agent identifier to image base filename
-  AGENT_IMAGE_BASENAMES = {
-    'agent_1' => 'vince',
-    'agent_2' => 'ella',
-    'agent_3' => 'reginald'
-  }.freeze
+  # AGENT_IMAGE_BASENAMES = { ... } # REMOVED
 
   # Polling constants for project status
   PROJECT_POLL_INTERVAL = 8 # seconds
@@ -52,19 +48,28 @@ class TtvGenerationJob < ApplicationJob
       return
     end
 
-    # Dynamically determine the image path based on agent identifier mapping
-    agent_basename = AGENT_IMAGE_BASENAMES[evaluation.agent_identifier]
-    unless agent_basename
-      msg = "Image basename not found for agent: #{evaluation.agent_identifier}"
+    # Get agent configuration from central initializer
+    agent_config = AGENTS_CONFIG[evaluation.agent_identifier]
+    unless agent_config
+      msg = "Agent configuration not found for identifier: #{evaluation.agent_identifier}"
       Rails.logger.error "TtvGenerationJob: #{msg} for Evaluation ##{evaluation_id}"
       evaluation.processing_failed(msg)
       return
     end
-    agent_image_filename = "#{agent_basename}_pic.png"
+
+    agent_image_filename = agent_config[:image_path]
+    unless agent_image_filename
+      msg = "Image path not configured in AGENTS_CONFIG for agent: #{evaluation.agent_identifier}"
+      Rails.logger.error "TtvGenerationJob: #{msg} for Evaluation ##{evaluation_id}"
+      evaluation.processing_failed(msg)
+      return
+    end
+
+    # Construct the full path to the image file
     agent_image_path = IMAGES_BASE_PATH.join(agent_image_filename)
 
     unless File.exist?(agent_image_path)
-      msg = "Agent start image is missing: #{agent_image_filename}"
+      msg = "Agent start image is missing at expected path: #{agent_image_path}"
       Rails.logger.error "TtvGenerationJob: #{msg} for Evaluation ##{evaluation_id}"
       evaluation.processing_failed(msg)
       return

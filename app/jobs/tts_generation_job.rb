@@ -13,12 +13,7 @@ class TtsGenerationJob < ApplicationJob
 
   # --- Configuration --- 
   # Map Agent Identifiers to ElevenLabs Voice IDs
-  # TODO: Replace placeholders with actual Voice IDs from your ElevenLabs account!
-  AGENT_VOICE_IDS = {
-    'agent_1' => 'Xb7hH8MSUJpSbSDYk0k2',    # Replace with actual ID
-    'agent_2' => 'pqHfZKP75CvOlQylNhV4',     # Replace with actual ID
-    'agent_3' => 'N2lVS1w4EtoT3dr4eOWO' # Replace with actual ID
-  }.freeze
+  # AGENT_VOICE_IDS = { ... } # REMOVED
 
   # Default model (can be overridden if needed)
   DEFAULT_MODEL_ID = "eleven_multilingual_v2"
@@ -50,10 +45,19 @@ class TtsGenerationJob < ApplicationJob
       return
     end
 
-    # Get agent-specific voice ID
-    agent_voice_id = AGENT_VOICE_IDS[evaluation.agent_identifier]
+    # Get agent configuration
+    agent_config = AGENTS_CONFIG[evaluation.agent_identifier]
+    unless agent_config
+      msg = "Agent configuration not found for identifier: #{evaluation.agent_identifier}"
+      Rails.logger.error "TtsGenerationJob: #{msg}"
+      evaluation.processing_failed(msg)
+      return
+    end
+
+    # Get agent-specific voice ID from central config
+    agent_voice_id = agent_config[:voice_id]
     unless agent_voice_id
-      msg = "ElevenLabs Voice ID not configured for agent: #{evaluation.agent_identifier}"
+      msg = "ElevenLabs Voice ID not configured in AGENTS_CONFIG for agent: #{evaluation.agent_identifier}"
       Rails.logger.error "TtsGenerationJob: #{msg}"
       evaluation.processing_failed(msg)
       return
