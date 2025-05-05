@@ -99,11 +99,12 @@ class TtsGenerationJob < ApplicationJob
         content_type: 'audio/mpeg'
       )
 
-      evaluation.update!(status: 'generating_video')
+      # Keep this status update so the frontend knows audio *should* be available
+      evaluation.update!(status: 'generating_video') 
 
       # Enqueue the next step: Text-to-Video generation
-      TtvGenerationJob.perform_later(evaluation.id)
-      Rails.logger.info "TTS generation complete for Evaluation ##{evaluation.id}. Enqueuing TTV."
+      # TtvGenerationJob.perform_later(evaluation.id) # << COMMENTED OUT FOR TESTING
+      Rails.logger.info "TTS generation complete for Evaluation ##{evaluation.id}. TTV step skipped for testing."
 
     # rescue ElevenLabs::ApiError => e # Use actual error class from gem
     #   Rails.logger.error "ElevenLabs API error for Evaluation ##{evaluation.id}: #{e.message}"

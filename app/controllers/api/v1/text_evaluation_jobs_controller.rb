@@ -7,8 +7,8 @@ module Api
       # POST /api/v1/text_evaluation_jobs
       def create
         uploaded_file = params[:powerpoint_file]
-        unless uploaded_file && uploaded_file.respond_to?(:content_type) && uploaded_file.content_type.in?(valid_ppt_mime_types)
-          render json: { error: 'Invalid or missing PowerPoint file. Please upload a .ppt or .pptx file.' }, status: :unprocessable_entity
+        unless uploaded_file && uploaded_file.respond_to?(:content_type) && uploaded_file.content_type.in?(valid_upload_mime_types)
+          render json: { error: 'Invalid or missing file. Please upload a .ppt, .pptx, or .pdf file.' }, status: :unprocessable_entity
           return
         end
 
@@ -72,11 +72,12 @@ module Api
 
       private
 
-      # Reuse mime type validation from the other controller (or move to ApplicationController)
-      def valid_ppt_mime_types
+      # Allowed MIME types for upload
+      def valid_upload_mime_types
         [
           'application/vnd.ms-powerpoint', # .ppt
-          'application/vnd.openxmlformats-officedocument.presentationml.presentation' # .pptx
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation', # .pptx
+          'application/pdf' # .pdf
         ]
       end
 
