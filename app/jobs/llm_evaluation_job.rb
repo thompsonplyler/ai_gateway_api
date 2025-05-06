@@ -180,9 +180,22 @@ class LlmEvaluationJob < ApplicationJob
         if text_result.blank?
           evaluation.processing_failed("Assistant message was empty.")
         else
-          evaluation.update!(text_result: text_result, status: 'generating_audio')
-          TtsGenerationJob.perform_later(evaluation.id)
-          Rails.logger.info "LLM evaluation complete (Assistants API) for Evaluation ##{evaluation.id}. Enqueuing TTS."
+          # Determine the status to set based on whether the next step is skipped.
+          # If TTS is skipped, the successful completion of LLM means this eval 
+          # reaches the state it *would* be in just before TTS.
+          final_status = evaluation_job.skip_tts? ? 'generating_audio' : 'generating_audio'
+          
+          evaluation.update!(text_result: text_result, status: final_status)
+          Rails.logger.info "LLM evaluation complete for Evaluation ##{evaluation.id}."
+
+          # Check completion or enqueue next job
+          if evaluation_job.skip_tts?
+            Rails.logger.info "TTS step skipped for EvaluationJob ##{evaluation_job.id}. Checking job completion."
+            evaluation_job.check_completion # Check if parent job is now done
+          else
+            TtsGenerationJob.perform_later(evaluation.id)
+            Rails.logger.info "Enqueuing TTS for Evaluation ##{evaluation.id}."
+          end
         end
       else
         evaluation.processing_failed("Could not find assistant message in thread ##{thread_id}. Response: #{messages_response.inspect}")
@@ -194,13 +207,25 @@ class LlmEvaluationJob < ApplicationJob
       # end
 
     rescue Faraday::Error => e # Catch API/HTTP errors
-      error_message = "OpenAI API Faraday error: #{e.message}"
-      error_message += " (Status: #{e.response[:status]})" if e.respond_to?(:response) && e.response
-      Rails.logger.error "#{error_message} for Evaluation ##{evaluation.id}"
-      evaluation.processing_failed(error_message)
+      # Check if this specific Faraday error is one we want Sidekiq to retry
+      if e.is_a?(Faraday::ServerError) || e.is_a?(Faraday::TooManyRequestsError)
+        Rails.logger.warn "Faraday Error (#{e.class}) encountered for Evaluation ##{evaluation.id}, allowing Sidekiq to retry..."
+        raise e # Re-raise the exception so Sidekiq's retry_on can handle it
+      else
+        # For other Faraday errors (e.g., ClientError 4xx), fail immediately
+        error_message = "OpenAI API Faraday error: #{e.message}"
+        error_message += " (Status: #{e.response[:status]})" if e.respond_to?(:response) && e.response
+        Rails.logger.error "Non-retryable Faraday Error for Evaluation ##{evaluation.id}: #{error_message}"
+        evaluation.processing_failed(error_message)
+        # Check completion in case this failure finishes the job
+        evaluation_job = evaluation.evaluation_job # Fetch parent if not already loaded
+        evaluation_job.check_completion
+      end
     rescue StandardError => e # Catch other unexpected errors
       Rails.logger.error "Unexpected error in LlmEvaluationJob for Evaluation ##{evaluation.id}: #{e.message}\n#{e.backtrace.join("\n")}"
       evaluation.processing_failed("Unexpected error: #{e.message}")
+      evaluation_job = evaluation.evaluation_job # Fetch parent if not already loaded
+      evaluation_job.check_completion
     end
   end
 

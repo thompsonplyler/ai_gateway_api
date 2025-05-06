@@ -18,7 +18,11 @@ Rails.application.routes.draw do
       #              delete '/logout', to: 'sessions#destroy'
 
       # Multi-step Video Evaluation Jobs
-      resources :evaluation_jobs, only: [:create, :show]
+      resources :evaluation_jobs, only: [:create, :show] do
+        member do
+          post :retry_failed # Add route for retrying failed evaluations
+        end
+      end
 
       # Simple Text Evaluation Jobs
       resources :text_evaluation_jobs, only: [:create, :show]

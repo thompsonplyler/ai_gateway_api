@@ -34,6 +34,8 @@ class TtvGenerationJob < ApplicationJob
 
   def perform(evaluation_id)
     evaluation = Evaluation.find_by(id: evaluation_id)
+    # Eager load parent job
+    evaluation_job = evaluation.evaluation_job
     unless evaluation
       Rails.logger.warn "TtvGenerationJob: Evaluation ##{evaluation_id} not found. Skipping."
       return
@@ -200,37 +202,18 @@ class TtvGenerationJob < ApplicationJob
         content_type: 'video/mp4' # Assuming mp4 output
       )
 
+      # Final successful state for this evaluation
       evaluation.update!(status: 'video_generated')
+      Rails.logger.info "TTV generation complete for Evaluation ##{evaluation.id}. Checking job completion."
 
-      # 7. Check if parent job can be marked as completed
-      check_and_complete_parent_job(evaluation.evaluation_job)
+      # Always check parent job completion after the final step
+      evaluation_job.check_completion
 
     rescue StandardError => e
       Rails.logger.error "Error in TtvGenerationJob for Evaluation ##{evaluation.id}: #{e.message}\n#{e.backtrace.join("\n")}"
       evaluation.processing_failed("Hedra processing failed: #{e.message}")
+      # Check completion in case this failure finishes the job
+      evaluation_job.check_completion
     end
-  end
-
-  private
-
-  # Checks if all evaluations for a given job are complete and updates the job status
-  def check_and_complete_parent_job(evaluation_job)
-    # Reload to ensure we have the latest status of siblings
-    evaluation_job.reload
-    # Only proceed if the job is still in the processing state
-    return unless evaluation_job.status == 'processing_evaluations'
-
-    # Check if all sibling evaluations (including the current one) are video_generated
-    if evaluation_job.evaluations.all? { |e| e.status == 'video_generated' }
-      Rails.logger.info "All evaluations complete for EvaluationJob ##{evaluation_job.id}. Marking as completed."
-      evaluation_job.update!(status: 'completed')
-    else
-      # Log how many are still pending if needed
-      pending_count = evaluation_job.evaluations.where.not(status: 'video_generated').count
-      Rails.logger.info "EvaluationJob ##{evaluation_job.id} still has #{pending_count} evaluations pending video generation."
-    end
-  rescue StandardError => e
-      # Log error but don't fail the current TtvGenerationJob just because the check failed
-      Rails.logger.error "Error checking/completing parent EvaluationJob ##{evaluation_job&.id}: #{e.message}"
   end
 end 

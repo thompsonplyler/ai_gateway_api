@@ -21,6 +21,8 @@ class TtsGenerationJob < ApplicationJob
 
   def perform(evaluation_id)
     evaluation = Evaluation.find_by(id: evaluation_id)
+    # Eager load parent job for flags
+    evaluation_job = evaluation.evaluation_job
     unless evaluation
       Rails.logger.warn "TtsGenerationJob: Evaluation ##{evaluation_id} not found. Skipping."
       return
@@ -99,12 +101,21 @@ class TtsGenerationJob < ApplicationJob
         content_type: 'audio/mpeg'
       )
 
-      # Keep this status update so the frontend knows audio *should* be available
-      evaluation.update!(status: 'generating_video') 
+      # If TTV is skipped, this is the final successful state
+      final_status = evaluation_job.skip_ttv? ? 'generating_video' : 'generating_video' # Stays generating_video for now
+      # We could potentially introduce a 'tts_complete' status if needed, but 
+      # 'generating_video' signifies audio is done and it's *ready* for video (even if skipped)
+      evaluation.update!(status: final_status)
+      Rails.logger.info "TTS generation complete for Evaluation ##{evaluation.id}."
 
-      # Enqueue the next step: Text-to-Video generation
-      # TtvGenerationJob.perform_later(evaluation.id) # << COMMENTED OUT FOR TESTING
-      Rails.logger.info "TTS generation complete for Evaluation ##{evaluation.id}. TTV step skipped for testing."
+      # Check completion or enqueue next job
+      if evaluation_job.skip_ttv?
+        Rails.logger.info "TTV step skipped for EvaluationJob ##{evaluation_job.id}. Checking job completion."
+        evaluation_job.check_completion # Check if parent job is now done
+      else
+        TtvGenerationJob.perform_later(evaluation.id)
+        Rails.logger.info "Enqueuing TTV for Evaluation ##{evaluation.id}."
+      end
 
     # rescue ElevenLabs::ApiError => e # Use actual error class from gem
     #   Rails.logger.error "ElevenLabs API error for Evaluation ##{evaluation.id}: #{e.message}"
@@ -112,6 +123,15 @@ class TtsGenerationJob < ApplicationJob
     rescue StandardError => e
       Rails.logger.error "Unexpected error in TtsGenerationJob for Evaluation ##{evaluation.id}: #{e.message}\n#{e.backtrace.join("\n")}"
       evaluation.processing_failed("Unexpected error during TTS generation: #{e.message}")
+      # Check completion in case this failure finishes the job
+      evaluation_job.check_completion
     end
   end
+
+  private
+
+  # REMOVE check_and_complete_parent_job_tts_final_step helper method
+  # def check_and_complete_parent_job_tts_final_step(evaluation_job)
+  # ...
+  # end
 end 
