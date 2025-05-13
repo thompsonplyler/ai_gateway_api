@@ -1,0 +1,38 @@
+<h1>Quest Candidates (Pending Review)</h1>
+
+<p>
+  <%= link_to "Enqueue New Quest Generation Job", admin_quest_candidates_enqueue_new_path, method: :post, class: "btn btn-primary" %>
+</p>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Species</th>
+      <th>Hat</th>
+      <th>Mood</th>
+      <th>Item Needed</th>
+      <th>Intro (Snippet)</th>
+      <th>Status</th>
+      <th>Created At</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @quest_candidates.each do |qc| %>
+      <tr>
+        <td><%= qc.id %></td>
+        <td><%= qc.chosen_variables_species %></td>
+        <td><%= qc.chosen_variables_hat %></td>
+        <td><%= qc.chosen_variables_mood %></td>
+        <td><%= qc.chosen_variables_item_needed %></td>
+        <td><%= truncate(qc.quest_intro, length: 50) %></td>
+        <td><span class="badge bg-<%= qc.status == 'approved' ? 'success' : 'warning' %>"><%= qc.status&.titleize %></span></td>
+        <td><%= qc.created_at.strftime("%Y-%m-%d %H:%M") %></td>
+        <td><%= link_to "View", admin_quest_candidate_path(qc), class: "btn btn-sm btn-info" %></td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
+
+<%= paginate @quest_candidates %> 

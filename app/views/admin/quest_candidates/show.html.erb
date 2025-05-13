@@ -1,0 +1,58 @@
+<p>
+  <strong>ID:</strong>
+  <%= @quest_candidate.id %>
+</p>
+
+<p>
+  <strong>Status:</strong>
+  <span class="badge bg-<%= @quest_candidate.status == 'approved' ? 'success' : 'warning' %>">
+    <%= @quest_candidate.status&.titleize %>
+  </span>
+</p>
+
+<p>
+  <strong>API Response ID:</strong>
+  <%= @quest_candidate.raw_api_response_id %>
+</p>
+
+<hr>
+
+<h3>Chosen Variables</h3>
+<p>
+  <strong>Species:</strong> <%= @quest_candidate.chosen_variables_species %><br>
+  <strong>Hat:</strong> <%= @quest_candidate.chosen_variables_hat %><br>
+  <strong>Mood:</strong> <%= @quest_candidate.chosen_variables_mood %><br>
+  <strong>Item Needed:</strong> <%= @quest_candidate.chosen_variables_item_needed %>
+</p>
+
+<hr>
+
+<h3>Quest Dialogue</h3>
+<p>
+  <strong>Intro:</strong><br>
+  <pre><%= @quest_candidate.quest_intro %></pre>
+</p>
+
+<p>
+  <strong>Completion Message:</strong><br>
+  <pre><%= @quest_candidate.quest_complete_message %></pre>
+</p>
+
+<hr>
+
+<% if @quest_candidate.supervisory_notes.present? %>
+  <p>
+    <strong>Supervisory Notes:</strong><br>
+    <pre><%= @quest_candidate.supervisory_notes %></pre>
+  </p>
+<% end %>
+
+<p>
+  <strong>Created At:</strong> <%= @quest_candidate.created_at %><br>
+  <strong>Updated At:</strong> <%= @quest_candidate.updated_at %><br>
+  <% if @quest_candidate.approved_at.present? %>
+    <strong>Approved At:</strong> <%= @quest_candidate.approved_at %>
+  <% end %>
+</p>
+
+<%= link_to 'Back to List', admin_quest_candidates_path, class: "btn btn-secondary" %> 
