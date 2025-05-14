@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_05_05_105557) do
+ActiveRecord::Schema[7.1].define(version: 2025_05_13_235446) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -81,6 +81,24 @@ ActiveRecord::Schema[7.1].define(version: 2025_05_05_105557) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["evaluation_job_id"], name: "index_evaluations_on_evaluation_job_id"
+  end
+
+  create_table "quest_candidates", force: :cascade do |t|
+    t.string "chosen_variables_species"
+    t.string "chosen_variables_hat"
+    t.string "chosen_variables_mood"
+    t.string "chosen_variables_item_needed"
+    t.text "quest_intro"
+    t.text "quest_complete_message"
+    t.string "raw_api_response_id"
+    t.string "status"
+    t.datetime "approved_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "supervisor_raw_api_response_id"
+    t.boolean "supervisor_approved"
+    t.integer "refinement_attempts", default: 0, null: false
+    t.jsonb "supervisory_notes_history", default: [], null: false
   end
 
   create_table "text_evaluation_jobs", force: :cascade do |t|

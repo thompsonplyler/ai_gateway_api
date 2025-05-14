@@ -26,6 +26,12 @@ Rails.application.routes.draw do
 
       # Simple Text Evaluation Jobs
       resources :text_evaluation_jobs, only: [:create, :show]
+
+      resources :quest_candidates, only: [:index, :show] do
+        collection do
+          post :generate # To trigger a new quest generation
+        end
+      end
     end
   end
 

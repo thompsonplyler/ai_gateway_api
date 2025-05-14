@@ -77,7 +77,7 @@ class GenerateQuestCandidateJob < ApplicationJob
         return
       end
 
-      QuestCandidate.create!(
+      quest_candidate = QuestCandidate.create!(
         chosen_variables_species: chosen_vars['species'],
         chosen_variables_hat: chosen_vars['hat'],
         chosen_variables_mood: chosen_vars['mood'],
@@ -87,7 +87,12 @@ class GenerateQuestCandidateJob < ApplicationJob
         raw_api_response_id: api_response['id'],
         status: :pending_review # Or 'pending_review'
       )
-      Rails.logger.info "GenerateQuestCandidateJob: Successfully created QuestCandidate with API response ID #{api_response['id']}"
+      Rails.logger.info "GenerateQuestCandidateJob: Successfully created QuestCandidate with ID #{quest_candidate.id} and API response ID #{api_response['id']}"
+
+      # Automatically enqueue the supervision job
+      SuperviseQuestCandidateJob.perform_later(quest_candidate.id)
+      Rails.logger.info "GenerateQuestCandidateJob: Enqueued SuperviseQuestCandidateJob for QuestCandidate ID #{quest_candidate.id}"
+
     rescue JSON::ParserError => e
       Rails.logger.error "GenerateQuestCandidateJob: Failed to parse JSON response. Error: #{e.message}. Raw text: #{raw_output_text}"
     rescue ActiveRecord::RecordInvalid => e

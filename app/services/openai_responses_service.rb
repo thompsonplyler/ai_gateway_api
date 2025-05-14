@@ -8,8 +8,14 @@ class OpenaiResponsesService
   BASE_URL = 'https://api.openai.com/v1'.freeze
 
   def initialize(api_key = nil)
-    # In real app, prefer Rails.application.credentials.openai[:api_key]
-    @api_key = api_key || ENV['OPENAI_API_KEY'] 
+    @api_key = api_key || Rails.application.credentials.dig(:openai, :api_key) || ENV['OPENAI_API_KEY']
+    
+    if @api_key.blank?
+      Rails.logger.error "OpenAI API Key is blank. Please check credentials or ENV variables."
+      # Consider raising an error here to make the problem more visible immediately
+      # raise "OpenAI API Key is missing!"
+    end
+
     @connection = Faraday.new(url: BASE_URL) do |faraday|
       faraday.request :json # Encode request bodies as JSON
       faraday.response :json # Decode response bodies as JSON
@@ -18,7 +24,7 @@ class OpenaiResponsesService
   end
 
   # New method specifically for generating quest candidates
-  def generate_quest_candidate(generation_prompt:, instructions:, model: "gpt-4o")
+  def generate_quest_candidate(generation_prompt:, instructions:, model: "gpt-4o", previous_response_id: nil)
     schema_definition = OpenaiQuestSchemas::QUEST_GENERATION_SCHEMA # Renamed for clarity
     request_body = {
       model: model,
@@ -34,6 +40,32 @@ class OpenaiResponsesService
         }
       },
       store: true # Keep storing responses for potential chaining
+    }
+    request_body[:previous_response_id] = previous_response_id if previous_response_id.present?
+
+    post_request("responses", request_body)
+  end
+
+  # Method for sending a quest candidate for supervisory review
+  def review_quest_candidate(quest_text_for_review:, generation_response_id:, instructions:, model: "gpt-4o")
+    # quest_text_for_review should be a string containing the intro, completion message,
+    # and any chosen variables formatted for the supervisor AI to understand.
+    
+    schema = OpenaiQuestSchemas::SUPERVISOR_REVIEW_SCHEMA
+    request_body = {
+      model: model,
+      input: quest_text_for_review,
+      instructions: instructions, # Specific instructions for the supervisor AI
+      previous_response_id: generation_response_id, # Link to the original generation context
+      text: {
+        format: {
+          type: "json_schema",
+          name: "supervisor_review_output", # Schema name for supervisor output
+          schema: schema,
+          strict: true
+        }
+      },
+      store: true # Important for conversation history
     }
 
     post_request("responses", request_body)
