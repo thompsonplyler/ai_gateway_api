@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Every change and addition should include clear verification steps so the user understands how to test whether something worked or didn't.

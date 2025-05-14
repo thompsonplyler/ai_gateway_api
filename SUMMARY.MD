@@ -1,126 +1,143 @@
-# Project Summary: AI Presentation Evaluation Pipeline
+# Project Summary: AI Gateway API
 
-## Project Overview
+## 1. Project Overview
 
-This is a Ruby on Rails application designed to process uploaded presentations (supporting PPT, PPTX, and PDF formats) through a multi-stage AI evaluation pipeline. The system simulates evaluations from multiple distinct "agents," each with its own personality and voice. Key components include:
+This is a Ruby on Rails application designed to act as a middleware API for orchestrating multi-stage AI-driven tasks. It primarily functions as an API, so all interactions and verifications should be done via API calls (e.g., using Postman) or, as a last resort, the Rails console. **There are no HTML views.**
 
-*   **LLM-based Text Evaluation:** Each agent uses an LLM (OpenAI Assistants API) to generate a textual evaluation of the uploaded presentation based on predefined instructions.
-*   **Text-to-Speech (TTS) Generation:** The textual evaluation from each agent is converted into speech (MP3) using the ElevenLabs API, with unique voice IDs per agent.
-*   **Text-to-Video (TTV) Generation:** (Currently disabled by default for testing/cost reasons, but supported) Combines an agent's image with their generated audio to produce a video evaluation (MP4) using the Hedra API.
-*   **Job Management & Status Tracking:** The system provides robust job status tracking, a mechanism to retry failed steps, and allows for per-request configuration of the pipeline stages.
+**Core Technologies:**
+*   Ruby on Rails (API-only)
+*   PostgreSQL (Database)
+*   Sidekiq (Background Job Processing)
+*   Redis (Sidekiq backend, Caching)
+*   Faraday (HTTP client for external API calls)
 
-All processing stages are handled by background jobs using Sidekiq.
+## 2. Core AI Workflows
 
-## Recent Features Added
+### 2.1. Presentation Evaluation Workflow ("AI Shark Tank")
 
-1.  **Centralized Agent Configuration:**
-    *   Agent-specific details (OpenAI instructions, ElevenLabs voice IDs, image paths for TTV) were moved from being hardcoded in individual job files to a central configuration file (`config/initializers/agents.rb`). This greatly simplifies management and updates of agent characteristics.
+This workflow processes uploaded presentation files (PPT, PPTX, PDF) through a multi-agent evaluation pipeline.
 
-2.  **Per-Job Configurable Pipeline (Skip Flags):**
-    *   Boolean flags `skip_tts` and `skip_ttv` were added to the `EvaluationJob` model (and its database table), defaulting to `false`.
-    *   API clients can now specify these flags in the `POST /api/v1/evaluation_jobs` request to control which stages of the pipeline are executed for that specific job (e.g., LLM only, or LLM+TTS only).
-    *   This replaced a previous global toggle for the TTV step.
+**Key Features & Flow:**
+*   **File Intake:** Accepts presentation uploads.
+*   **Multi-Agent Simulation:** Each presentation is evaluated by multiple simulated "agents," each with distinct personalities, voices, and evaluation criteria defined in `config/initializers/agents.rb`.
+*   **Pipeline Stages (per agent):**
+    1.  **LLM-based Text Evaluation:** Generates a textual critique using the OpenAI Assistants API.
+    2.  **Text-to-Speech (TTS):** Converts the text evaluation to an MP3 audio file using the ElevenLabs API (unique voice per agent).
+    3.  **Text-to-Video (TTV):** (Supported but can be disabled) Combines an agent's image with their audio to produce an MP4 video using the Hedra API.
+*   **Configurable Pipeline:** Each evaluation request can specify whether to skip TTS (`skip_tts`) and/or TTV (`skip_ttv`) stages.
+*   **Status Tracking & Retry:** Robust job and per-agent evaluation status tracking. Failed or stuck steps can be retried.
+*   **Error Handling:** Differentiates between retryable (e.g., HTTP 5xx, 429) and non-retryable (e.g., client-side 4xx) errors from external APIs, integrating with Sidekiq's retry mechanisms.
 
-3.  **Enhanced Job Status Reporting (`show` Endpoint):**
-    *   The `GET /api/v1/evaluation_jobs/:id` endpoint was significantly improved to provide a more detailed and accurate JSON response:
-        *   Includes the job-specific `skip_tts` and `skip_ttv` flags to indicate the requested pipeline for that job.
-        *   Returns granular, stage-specific statuses for each agent (e.g., `llm_complete`, `tts_processing`, `ttv_skipped`, `llm_failed`) within distinct arrays: `individual_evaluations`, `individual_audio`, and `individual_videos`.
-        *   Provides direct URLs to the originally uploaded file and any generated audio/video artifacts via ActiveStorage.
+**Data Models:**
+*   `EvaluationJob`: Manages the overall process for one uploaded file. Stores the file (ActiveStorage), skip flags, and overall status. Has many `Evaluation` records.
+*   `Evaluation`: Represents one agent's pipeline for an `EvaluationJob`. Stores agent identifier, text output, status for each stage (LLM, TTS, TTV), and links to generated audio/video files (ActiveStorage).
 
-4.  **Robust Retry Mechanism for Failed/Stuck Evaluations:**
-    *   A new endpoint `POST /api/v1/evaluation_jobs/:id/retry_failed` was implemented.
-    *   This allows for retrying individual `Evaluation` records within a parent `EvaluationJob` that have either:
-        *   Explicitly failed (status: `failed`).
-        *   Become "stuck" in an intermediate processing state (`evaluating`, `generating_audio`, `generating_video`) for longer than a defined threshold for that specific stage (LLM: 90s, TTS: 2m, TTV: 5m).
-    *   The retry logic intelligently restarts the processing for an agent from the point of failure (e.g., if TTS failed, it retries TTS with existing LLM text, not the entire LLM step again).
-    *   The check for stuck TTV steps respects the `skip_ttv` flag of the parent job.
+**Background Jobs (Sidekiq):**
+*   `LlmEvaluationJob`: Fetches agent instructions, calls OpenAI Assistants API, saves text, enqueues `TtsGenerationJob` (if not skipped).
+*   `TtsGenerationJob`: Uses text and voice ID, calls ElevenLabs API, saves audio, enqueues `TtvGenerationJob` (if not skipped).
+*   `TtvGenerationJob`: Uses audio and image, calls Hedra API, saves video.
+*   All jobs call `EvaluationJob#check_completion` to update the parent job's status.
 
-5.  **PDF File Upload Support:**
-    *   The backend controllers (`EvaluationJobsController`, `TextEvaluationJobsController`) were updated to validate and accept `application/pdf` MIME type, in addition to the original PPT/PPTX formats.
+### 2.2. Quest Generation Workflow
 
-6.  **Improved Background Job Error Handling (LLM Job):**
-    *   The error handling within `LlmEvaluationJob` was refined. It now distinguishes between:
-        *   Retryable `Faraday::Error` exceptions (e.g., `Faraday::ServerError` for HTTP 5xx, `Faraday::TooManyRequestsError` for HTTP 429). These are re-raised to allow Sidekiq's `retry_on` mechanism to handle them automatically.
-        *   Non-retryable `Faraday::Error` exceptions (e.g., client-side 4xx errors), which cause the specific evaluation to be marked as `failed` immediately.
+This workflow generates in-game quest candidates through a generate-supervise-refine loop using the OpenAI Responses API.
 
-## Challenges Faced & Error Messages Addressed
+**Key Features & Flow:**
+*   **Initial Generation:** An AI generates quest dialogue (intro, completion message) and chooses variables (species, hat, mood, item) based on a detailed prompt and predefined variable lists. Output is a structured JSON object.
+*   **Supervisory Review:** A second AI call (acting as a QA Narrative Designer) reviews the generated quest against quality criteria, outputting an approval status and feedback in a structured JSON format. For testing, this stage can be made randomly approving/rejecting.
+*   **Refinement Loop:**
+    *   If a quest `needs_revision`, feedback from the supervisor is used to construct a new prompt for the AI to revise the quest.
+    *   The revised quest is then sent back for another round of supervision.
+    *   This loop continues until the quest is approved (or a max attempt limit is reached - *future consideration*).
+*   **Contextual Chaining:** Uses `previous_response_id` from the OpenAI Responses API to link conversational turns (e.g., refinement is a response to supervisor feedback).
+*   **Attempt Tracking:** Counts refinement attempts for each quest candidate.
+*   **Feedback History:** Stores all supervisory notes for a quest candidate.
 
-1.  **CORS Errors:**
-    *   **Message:** `Access to fetch at '...' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present...`
-    *   **Resolution:** The `config/initializers/cors.rb` file was uncommented and configured to explicitly allow requests from the frontend application's origin (e.g., `http://localhost:5173`).
+**Data Model:**
+*   `QuestCandidate`: Stores chosen variables, intro/complete messages, `raw_api_response_id` (for the latest generation/refinement), `status` (enum: `pending_review`, `needs_revision`, `approved`), supervisor details (`supervisor_raw_api_response_id`, `supervisor_approved`), `approved_at`, `refinement_attempts` (integer, default 0), and `supervisory_notes_history` (jsonb array).
 
-2.  **Sidekiq Retries Not Triggering for LLM Job API Errors:**
-    *   **Symptom:** HTTP 500 errors from the OpenAI API within the `LlmEvaluationJob` were not resulting in job retries, despite `retry_on Faraday::ServerError` being configured.
-    *   **Cause:** A broad `rescue Faraday::Error` block within the job was catching these exceptions and handling them (by marking the evaluation as failed), thus preventing Sidekiq's retry mechanism from seeing the original error.
-    *   **Resolution:** The `rescue Faraday::Error` block was modified to check the specific type of `Faraday::Error`. If it's a `Faraday::ServerError` or `Faraday::TooManyRequestsError`, the exception is re-raised. Other `Faraday::Error` types are handled locally by failing the evaluation.
+**Core Service:**
+*   `OpenaiResponsesService`: Handles all communication with the OpenAI `POST /v1/responses` endpoint, including managing structured JSON output requests using specific `text.format` parameters.
 
-3.  **Premature Job Completion with Skipped Steps:**
-    *   **Symptom:** An `EvaluationJob` with `skip_tts: true` and `skip_ttv: true` was being marked `completed` even if one of its child `Evaluation` records (for a specific agent) was still actively processing the LLM step (status: `evaluating`).
-    *   **Cause:** The `EvaluationJob#check_completion` method incorrectly determined the `expected_terminal_status` for child evaluations as `'evaluating'` when both TTS and TTV were skipped. This matched the *in-progress* state of the LLM job.
-    *   **Resolution:**
-        *   `LlmEvaluationJob` was updated: if `skip_tts` is true, a successful LLM evaluation now sets the child `Evaluation` status to `'generating_audio'` (conceptually, the state just before the skipped TTS step).
-        *   `EvaluationJob#check_completion` was updated: if `skip_tts` and `skip_ttv` are true, the `expected_terminal_status` for children is now `'generating_audio'`. This ensures all LLM jobs must truly finish.
+**Background Jobs (Sidekiq):**
+*   `GenerateQuestCandidateJob`: Initiates quest generation, creates `QuestCandidate` (status `pending_review`), enqueues `SuperviseQuestCandidateJob`.
+*   `SuperviseQuestCandidateJob`: Sends quest for review, updates `QuestCandidate` with feedback/status, appends to `supervisory_notes_history`. If `needs_revision`, increments `refinement_attempts` and enqueues `RefineQuestCandidateJob`.
+*   `RefineQuestCandidateJob`: Takes feedback, prompts AI for revision, updates `QuestCandidate` with new dialogue, resets status to `pending_review`, and re-enqueues `SuperviseQuestCandidateJob`.
 
-4.  **Incorrect Retry of "Completed" Skipped Steps:**
-    *   **Symptom:** The `retry_failed` endpoint was retrying evaluations that had successfully completed their LLM and TTS stages but were in the `generating_video` state because the TTV step was (globally or per-job) disabled.
-    *   **Cause:** The logic for identifying "stuck" jobs considered `generating_video` a stuck state if `updated_at` was old, without fully accounting for the TTV step being intentionally skipped.
-    *   **Resolution:** The query in `retry_failed` was refined to only consider an evaluation stuck in `generating_video` if the `skip_ttv` flag for that specific `EvaluationJob` is `false`.
+**JSON Schemas:**
+*   Defined in `config/initializers/openai_quest_schemas.rb` for `QUEST_GENERATION_SCHEMA` and `SUPERVISOR_REVIEW_SCHEMA`.
 
-5.  **`undefined method 'processing_evaluations?'` in Model:**
-    *   **Error:** Occurred within `EvaluationJob#check_completion`.
-    *   **Cause:** Rails `enum` defined with a hash (e.g., `enum status: { pending: 0, ... }`) does not automatically generate predicate methods like `processing_evaluations?`.
-    *   **Resolution:** The check was changed from `return unless processing_evaluations?` to `return unless status == 'processing_evaluations'`.
+## 3. API Endpoints (Namespace: `/api/v1`)
 
-## High-Level Project Description (for Rebuilding)
+**Presentation Evaluation Workflow:**
+*   `POST /evaluation_jobs`: Upload a presentation file (PPT, PPTX, PDF) and optionally `skip_tts`, `skip_ttv`. Triggers the evaluation pipeline.
+*   `GET  /evaluation_jobs/:id`: Get detailed status of an `EvaluationJob` and its per-agent progress.
+*   `POST /evaluation_jobs/:id/retry_failed`: Retry failed or stuck evaluations within a job.
 
-This system is a Ruby on Rails application using Sidekiq for background job processing. It's designed to take an uploaded presentation file, process it through a series of AI services for evaluation by multiple simulated "agents," and make the results available via an API.
+**Text Evaluation Workflow (Simplified):**
+*   `POST /text_evaluation_jobs`: (Details to be filled if this is a distinct, active workflow)
+*   `GET  /text_evaluation_jobs/:id`: (Details to be filled)
 
-**Core Components & Flow:**
+**Quest Generation Workflow:**
+*   `POST /quest_candidates/generate`: Triggers the `GenerateQuestCandidateJob`.
+*   `GET  /quest_candidates`: Lists all generated `QuestCandidate` records (supports pagination).
+*   `GET  /quest_candidates/:id`: Shows a specific `QuestCandidate` record.
 
-1.  **Models:**
-    *   `EvaluationJob`: Manages the overall process for a single uploaded file. Tracks overall status (`pending`, `processing_evaluations`, `completed`, `failed`), stores the original file (ActiveStorage), and holds boolean flags (`skip_tts`, `skip_ttv`) to control pipeline stages. Has many `Evaluation` records.
-    *   `Evaluation`: Represents a single agent's evaluation pipeline for the parent `EvaluationJob`. Stores `agent_identifier`, its specific processing status (e.g., `pending`, `evaluating`, `generating_audio`, `video_generated`, `failed`), the LLM's text output, and attached audio/video files (ActiveStorage).
+**User Management & Authentication:**
+*   `POST /users`: User registration.
+*   `POST /session`: User login (create session/token).
+*   `DELETE /session`: User logout (destroy session/token).
 
-2.  **API (`Api::V1` Namespace):**
-    *   **`POST /evaluation_jobs`:** Accepts a file (PPT, PPTX, PDF) and optional `skip_tts`, `skip_ttv` boolean parameters. Creates an `EvaluationJob` record and associated child `Evaluation` records (one per agent), then enqueues the initial `LlmEvaluationJob` for each child.
-    *   **`GET /evaluation_jobs/:id`:** Returns the detailed status of the `EvaluationJob`, including overall status, skip flags, links to uploaded/generated files, and per-agent detailed progress for LLM, TTS, and TTV stages.
-    *   **`POST /evaluation_jobs/:id/retry_failed`:** Identifies failed or "stuck" child `Evaluation` records within the job and re-enqueues the appropriate background job to restart processing from the point of failure.
+**AI Tasks (Generic):**
+*   `POST /ai_tasks`: (Details to be filled)
+*   `GET /ai_tasks`: (Details to be filled)
+*   `GET /ai_tasks/:id`: (Details to be filled)
 
-3.  **Background Jobs (Sidekiq):**
-    *   **`LlmEvaluationJob`:**
-        *   Receives an `Evaluation` ID.
-        *   Retrieves agent-specific instructions (from `config/initializers/agents.rb`).
-        *   Calls OpenAI Assistants API.
-        *   Saves text result to `Evaluation#text_result`. Sets `Evaluation#status`.
-        *   If parent `EvaluationJob#skip_tts` is `false`, enqueues `TtsGenerationJob`.
-        *   Calls `EvaluationJob#check_completion` on the parent.
-    *   **`TtsGenerationJob`:**
-        *   Receives an `Evaluation` ID.
-        *   Uses `Evaluation#text_result` and agent-specific voice ID (from `config/initializers/agents.rb`).
-        *   Calls ElevenLabs API.
-        *   Attaches audio MP3 to `Evaluation#audio_file`. Sets `Evaluation#status`.
-        *   If parent `EvaluationJob#skip_ttv` is `false`, enqueues `TtvGenerationJob`.
-        *   Calls `EvaluationJob#check_completion` on the parent.
-    *   **`TtvGenerationJob`:** (Currently, enqueuing this job is commented out in `TtsGenerationJob`)
-        *   Receives an `Evaluation` ID.
-        *   Uses `Evaluation#audio_file` and agent-specific image path (from `config/initializers/agents.rb`).
-        *   Calls Hedra API.
-        *   Attaches video MP4 to `Evaluation#video_file`. Sets `Evaluation#status` to `video_generated`.
-        *   Calls `EvaluationJob#check_completion` on the parent.
-    *   All jobs are configured with Sidekiq's `retry_on` for specific `Faraday::Error` types (e.g., server errors, rate limits).
+**Health Checks:**
+*   `GET /health`
+*   `GET /up` (Rails default)
 
-4.  **Key Configuration Files:**
-    *   `config/initializers/agents.rb`: Central store for agent personalities, voice IDs, image paths.
-    *   `config/routes.rb`: Defines API endpoints and the Sidekiq Web UI route.
-    *   `config/credentials.yml.enc`: Stores API keys for external services (OpenAI, ElevenLabs, Hedra).
-    *   `config/initializers/cors.rb`: Manages Cross-Origin Resource Sharing.
-    *   Database Migrations: To create `evaluation_jobs` (with status, error_message, skip_tts, skip_ttv) and `evaluations` (with agent_identifier, status, error_message, text_result) tables, and ActiveStorage tables.
+## 4. Key Configuration Files
 
-5.  **Main Logic/Functionality:**
-    *   **File Intake & Validation:** Handles PPT/PPTX/PDF uploads.
-    *   **Pipeline Orchestration:** `EvaluationJob` model's callbacks and the individual background jobs manage the flow through LLM, TTS, and TTV stages.
-    *   **Skip Logic:** Conditional enqueuing of jobs based on `skip_tts` and `skip_ttv` flags on the `EvaluationJob`.
-    *   **Completion Tracking:** The `EvaluationJob#check_completion` method is crucial. It's called by each job after its step to determine if the overall parent job can be marked `completed` or `failed`, considering the skip flags and the status of all sibling evaluations.
-    *   **Error Handling:** Each job has `rescue` blocks. Retryable API errors are re-raised for Sidekiq. Non-retryable errors or other exceptions lead to the `Evaluation` (and potentially `EvaluationJob`) being marked `failed` with an error message.
+*   `config/initializers/agents.rb`: Defines agent characteristics for the Presentation Evaluation workflow.
+*   `config/initializers/openai_quest_schemas.rb`: Defines JSON schemas for the Quest Generation workflow.
+*   `config/routes.rb`: Defines all API endpoints and the Sidekiq Web UI route (`/sidekiq`).
+*   `config/credentials.yml.enc`: Stores API keys for external services (OpenAI, ElevenLabs, Hedra). Prioritized for API key access within services.
+*   `config/database.yml`: PostgreSQL connection details.
+*   `app/services/openai_responses_service.rb`: Wrapper for OpenAI Responses API.
 
-To rebuild this, one would establish the Rails application with Sidekiq, define the database schema for jobs and evaluations, implement the API controllers for job creation and status polling, and then create each background job, carefully handling API interactions, status updates, and the conditional logic for enqueuing subsequent steps and checking for overall job completion based on the per-job skip flags. 
+## 5. Challenges, Gotchas & Key Learnings for Future AI/Developer
+
+This section consolidates insights gained during development, particularly useful for onboarding or troubleshooting.
+
+*   **External API Specificity (OpenAI Responses API):**
+    *   The `POST /v1/responses` endpoint's structure for requesting structured JSON output (`text: { format: { type: "json_schema", name: "...", schema: {...}, strict: true } }`) was discovered through iterative trial-and-error based on API error messages. It differs from other OpenAI API patterns (e.g., Chat Completions' `response_format`). Assume nothing; test parameter structures meticulously.
+    *   `previous_response_id` is essential for contextual conversations.
+    *   The `instructions` parameter is non-inheriting when `previous_response_id` is used, which is powerful for multi-stage agent interactions.
+
+*   **Rails Schema Integrity & Caching:**
+    *   **Symptom**: `undefined method` errors for new model attributes in Sidekiq jobs or API responses, even after running migrations and basic server restarts.
+    *   **Root Cause**: `db/schema.rb` not accurately reflecting the database state due to migrations not applying fully/correctly, or running processes (web server, Sidekiq) using cached schema information.
+    *   **Diagnosis**: Direct inspection of `db/schema.rb` is paramount. If it's incorrect, migrations are the problem. If `db/schema.rb` *is* correct but errors persist, ensure full restarts of *all* Rails processes (including Spring if used, though determined not to be in use here).
+    *   **Resolution**: For persistent schema discrepancies, a `rails db:drop db:create db:migrate` or a targeted "corrector" migration might be necessary to force the schema into the correct state. Always verify `db/schema.rb` is regenerated correctly after migrations.
+
+*   **Sidekiq Environment Consistency:**
+    *   Sidekiq workers run in separate processes. Ensure they have access to the same environment variables (like API keys) and Rails application context (including initializers and credentials) as the main web server process.
+    *   For API keys, using `Rails.application.credentials` is more robust than relying solely on `ENV` variables for Sidekiq jobs that load the full Rails environment.
+
+*   **CORS Errors:** For APIs intended to be called from browser-based frontends, ensure `config/initializers/cors.rb` is correctly configured.
+
+*   **Sidekiq Error Handling & Retries:** Differentiate `Faraday::Error` types in background jobs. Re-raise server-side errors (5xx, 429) to leverage Sidekiq's retry mechanisms; handle client-side errors (4xx) by failing the job explicitly if they are non-recoverable.
+
+*   **Enum Predicate Methods:** Rails enums defined with a hash do not automatically create predicate methods (e.g., `object.processing_evaluations?`). Use direct status comparison (`object.status == 'processing_evaluations'`).
+
+## 6. How to Rebuild/Understand This Project
+
+1.  **Setup Basic Rails API**: `rails new ai_gateway_api --api -d postgresql`. Add `sidekiq`, `redis`, `faraday`.
+2.  **Define Models**: Create ActiveRecord models as described in section 2 (e.g., `EvaluationJob`, `Evaluation`, `QuestCandidate`, `User`, `ApiToken`, etc.) by generating migrations and defining associations/enums.
+3.  **Configure External Services**: Set up `config/credentials.yml.enc` for OpenAI, ElevenLabs, Hedra API keys.
+4.  **Implement Core Services**: Create `OpenaiResponsesService` (and any other wrappers for ElevenLabs/Hedra).
+5.  **Develop API Controllers & Routes**: Implement controllers in `app/controllers/api/v1/` for each resource as listed in section 3, defining actions and JSON rendering. Set up `config/routes.rb`.
+6.  **Implement Background Jobs**: Create Sidekiq jobs for each asynchronous task (e.g., `LlmEvaluationJob`, `GenerateQuestCandidateJob`, etc.), detailing their API calls, data manipulation, status updates, and enqueuing of subsequent jobs.
+7.  **Add Configuration**: Create initializers like `agents.rb` and `openai_quest_schemas.rb`.
+8.  **Iteratively Test**: Use an API client (Postman) to test each endpoint and the full job workflows, monitoring Sidekiq and Rails logs closely.

@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+This project is a Rails API project that uses a PostgresQL database as well as Sidekiq and Redis for queuing/jobs. Since this is an API project, there are no views, and any testing of views should be implemented as a mechanism to test via a response to a front-end or API call.
