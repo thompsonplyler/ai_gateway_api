@@ -32,6 +32,9 @@ Rails.application.routes.draw do
           post :generate # To trigger a new quest generation
         end
       end
+
+      # Lyric Sets
+      resources :lyric_sets, only: [:create, :show, :index]
     end
   end
 

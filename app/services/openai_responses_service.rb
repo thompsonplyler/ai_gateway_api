@@ -6,6 +6,10 @@ require 'json'
 
 class OpenaiResponsesService
   BASE_URL = 'https://api.openai.com/v1'.freeze
+  # Define timeouts in seconds
+  OPEN_TIMEOUT = 10 # Time to open the connection
+  READ_TIMEOUT = 120 # Time to wait for response data (increased from default)
+  WRITE_TIMEOUT = 60 # Time to wait for a write operation to complete (if applicable, less common for GET/POST data)
 
   def initialize(api_key = nil)
     @api_key = api_key || Rails.application.credentials.dig(:openai, :api_key) || ENV['OPENAI_API_KEY']
@@ -20,6 +24,10 @@ class OpenaiResponsesService
       faraday.request :json # Encode request bodies as JSON
       faraday.response :json # Decode response bodies as JSON
       faraday.adapter Faraday.default_adapter # Use the default adapter
+      # Configure timeouts
+      faraday.options.open_timeout = OPEN_TIMEOUT
+      faraday.options.timeout = READ_TIMEOUT # This is the overall read/inactive timeout
+      # faraday.options.write_timeout = WRITE_TIMEOUT # If you need to set write timeout specifically
     end
   end
 
@@ -68,6 +76,49 @@ class OpenaiResponsesService
       store: true # Important for conversation history
     }
 
+    post_request("responses", request_body)
+  end
+
+  # Method for generating lyrics
+  def generate_lyrics(prompt:, instructions:, model: "gpt-4o", previous_response_id: nil)
+    # LYRIC_GENERATION_SCHEMA should be available from config/initializers/openai_lyric_schemas.rb
+    request_body = {
+      model: model,
+      input: prompt,
+      instructions: instructions,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "lyric_generation_output",
+          schema: LYRIC_GENERATION_SCHEMA, # From initializer
+          strict: true
+        }
+      },
+      store: true
+    }
+    request_body[:previous_response_id] = previous_response_id if previous_response_id.present?
+
+    post_request("responses", request_body)
+  end
+
+  # Method for supervising lyrics
+  def supervise_lyrics(prompt:, instructions:, previous_response_id:, model: "gpt-4o")
+    # LYRIC_SUPERVISION_SCHEMA should be available from config/initializers/openai_lyric_schemas.rb
+    request_body = {
+      model: model,
+      input: prompt,
+      instructions: instructions,
+      previous_response_id: previous_response_id, # Required for supervision context
+      text: {
+        format: {
+          type: "json_schema",
+          name: "lyric_supervision_output",
+          schema: LYRIC_SUPERVISION_SCHEMA, # From initializer
+          strict: true
+        }
+      },
+      store: true
+    }
     post_request("responses", request_body)
   end
 
