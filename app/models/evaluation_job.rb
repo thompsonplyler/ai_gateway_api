@@ -35,8 +35,8 @@ class EvaluationJob < ApplicationRecord
     # Determine the expected terminal status for children based on flags
     expected_terminal_status = if skip_ttv?
                                  # If TTS is also skipped, the final state is just after LLM finishes.
-                                 # We set this to 'generating_audio' in LlmEvaluationJob.
-                                 skip_tts? ? 'generating_audio' : 'generating_video'
+                                 # We set this to 'llm_complete' in LlmEvaluationJob when skip_tts is true.
+                                 skip_tts? ? 'llm_complete' : 'generating_video'
                                else
                                  'video_generated'
                                end

@@ -23,7 +23,7 @@ class LlmEvaluationJob < ApplicationJob
   RUN_TIMEOUT = 20 * 60 # 20 minutes (Increased from 10)
 
   # Token limit for Assistant response
-  MAX_COMPLETION_TOKENS = 250
+  MAX_COMPLETION_TOKENS = 180 # Reduced from 250 to aim for ~135 words
 
   def perform(evaluation_id)
     Rails.logger.info "SIDEKIQ LlmEvaluationJob STARTING - Evaluation ID: #{evaluation_id}"
@@ -198,26 +198,26 @@ class LlmEvaluationJob < ApplicationJob
           Rails.logger.warn "Assistant message was present but extracted text_result is blank. Eval ##{evaluation.id}"
           evaluation.processing_failed("Assistant message was empty after extraction.")
         else
-          final_status = evaluation_job.skip_tts? ? 'generating_audio' : 'generating_audio'
+          final_status = evaluation_job.skip_tts? ? 'llm_complete' : 'generating_audio'
           
-          Rails.logger.info "DIAGNOSTIC SAVE ATTEMPT for Evaluation ##{evaluation.id}:"
-          Rails.logger.info "  Attempting to save status: '#{final_status}'"
-          evaluation.update_column(:status, final_status) # Skip callbacks/validations for status
-          evaluation.reload
-          Rails.logger.info "  POST status update_column: DB status is: '#{evaluation.status}'"
+          # Rails.logger.info "DIAGNOSTIC SAVE ATTEMPT for Evaluation ##{evaluation.id}:"
+          # Rails.logger.info "  Attempting to save status: '#{final_status}'"
+          # evaluation.update_column(:status, final_status) # Skip callbacks/validations for status
+          # evaluation.reload
+          # Rails.logger.info "  POST status update_column: DB status is: '#{evaluation.status}'"
 
-          Rails.logger.info "  Attempting to save text_result (first 100 chars): '#{text_result.truncate(100)}'"
-          evaluation.update_column(:text_result, text_result) # Skip callbacks/validations for text_result
-          evaluation.reload
-          Rails.logger.info "  POST text_result update_column: DB text_result starts with: '#{evaluation.text_result&.truncate(100)}'"
+          # Rails.logger.info "  Attempting to save text_result (first 100 chars): '#{text_result.truncate(100)}'"
+          # evaluation.update_column(:text_result, text_result) # Skip callbacks/validations for text_result
+          # evaluation.reload
+          # Rails.logger.info "  POST text_result update_column: DB text_result starts with: '#{evaluation.text_result&.truncate(100)}'"
 
-          # Original update logic - commented out for diagnostic
-          # Rails.logger.info "PRE-UPDATE for Evaluation ##{evaluation.id}: Attempting to save text_result starting with: '#{text_result.truncate(100)}', status: '#{final_status}'"
-          # evaluation.update!(text_result: text_result, status: final_status)
-          # evaluation.reload 
-          # Rails.logger.info "POST-UPDATE for Evaluation ##{evaluation.id}: DB text_result starts with: '#{evaluation.text_result&.truncate(100)}', DB status is: '#{evaluation.status}'"
+          # Original update logic - now restored
+          Rails.logger.info "PRE-UPDATE for Evaluation ##{evaluation.id}: Attempting to save text_result starting with: '#{text_result.truncate(100)}', status: '#{final_status}'"
+          evaluation.update!(text_result: text_result, status: final_status)
+          evaluation.reload 
+          Rails.logger.info "POST-UPDATE for Evaluation ##{evaluation.id}: DB text_result starts with: '#{evaluation.text_result&.truncate(100)}', DB status is: '#{evaluation.status}'"
 
-          Rails.logger.info "LLM evaluation complete for Evaluation ##{evaluation.id}. (used update_column for diagnostics)"
+          Rails.logger.info "LLM evaluation complete for Evaluation ##{evaluation.id}." # Removed (used update_column for diagnostics)
 
           # Check completion or enqueue next job
           if evaluation_job.skip_tts?
