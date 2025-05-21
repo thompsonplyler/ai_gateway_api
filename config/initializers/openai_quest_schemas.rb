@@ -49,4 +49,38 @@ module OpenaiQuestSchemas
     required: ["approved", "feedback", "suggested_changes"],
     additionalProperties: false
   }.freeze
+
+  # Schema for the initial evaluation generation output
+  EVALUATION_GENERATION_SCHEMA = {
+    type: :object,
+    properties: {
+      evaluation_text: {
+        type: :string,
+        description: "The generated evaluation text for the presentation. Should be concise, aiming for a spoken duration of under 25 seconds, and in the specified character voice."
+      }.freeze
+    }.freeze,
+    required: ["evaluation_text"],
+    additionalProperties: false
+  }.freeze
+
+  # Schema for the evaluation supervision output
+  EVALUATION_SUPERVISION_SCHEMA = {
+    type: :object,
+    properties: {
+      is_approved: {
+        type: :boolean,
+        description: "Whether the evaluation meets all criteria (length, tone, quality)."
+      }.freeze,
+      is_correct_length: {
+        type: :boolean,
+        description: "Specifically, whether the evaluation text is estimated to be under 25 seconds when spoken."
+      }.freeze,
+      feedback: {
+        type: [:string, :null],
+        description: "Constructive feedback if not approved, detailing issues with length, tone, or other quality aspects. Null if approved."
+      }.freeze
+    }.freeze,
+    required: ["is_approved", "is_correct_length", "feedback"],
+    additionalProperties: false
+  }.freeze
 end 

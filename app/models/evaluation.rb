@@ -10,15 +10,36 @@ class Evaluation < ApplicationRecord
   # Identifier for the agent performing the evaluation (e.g., "agent_1")
   attribute :agent_identifier, :string
 
-  # Text result from the LLM evaluation
-  attribute :text_result, :text
-
   # Status for this specific evaluation pathway
-  # Possible values: 'pending', 'evaluating', 'generating_audio', 'generating_video', 'video_generated', 'failed'
-  attribute :status, :string, default: 'pending'
+  # Possible values:
+  # 'pending_generation', 'generating_evaluation', 'pending_supervision',
+  # 'supervising_evaluation', 'needs_revision', 'refining_evaluation',
+  # 'approved_for_tts', 'generating_audio', 'generating_video', 'video_generated', 'failed'
+  attribute :status, :string, default: 'pending_generation'
 
   # Store any specific error message for this evaluation path
   attribute :error_message, :text
+
+  # Raw text output from the initial LLM generation
+  attribute :raw_text_output, :text
+
+  # Current version of the evaluation text, potentially after revisions
+  attribute :current_text_output, :text
+
+  # Status from the supervisor AI
+  attribute :supervisor_status, :string # e.g., 'approved', 'rejected_length', 'rejected_tone'
+
+  # Number of revision attempts made
+  attribute :revision_attempts, :integer, default: 0
+
+  # API response ID from the LLM for the latest generation/refinement
+  attribute :llm_api_response_id, :string
+
+  # Feedback text from the supervisor AI
+  attribute :supervisor_feedback, :text
+
+  # API response ID from the supervisor LLM call
+  attribute :supervisor_llm_api_response_id, :string
 
   # === VALIDATIONS ===
   validates :agent_identifier, presence: true

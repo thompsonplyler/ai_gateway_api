@@ -42,8 +42,10 @@ module Api
 
       # GET /api/v1/evaluation_jobs/:id
       def show
-        # Eager load evaluations to avoid N+1 queries
-        @evaluation_job = EvaluationJob.includes(:evaluations).find(params[:id])
+        # Eager load evaluations and their file attachments to avoid N+1 queries
+        @evaluation_job = EvaluationJob.includes(
+          evaluations: [:audio_file_attachment, :video_file_attachment]
+        ).find(params[:id])
 
         # Base response data (overall job status)
         response_data = {
@@ -88,7 +90,7 @@ module Api
           # 1. Individual LLM Evaluation Info
           individual_evaluations << base_info.merge({
             status: llm_status,
-            text_result: evaluation.text_result,
+            text_result: evaluation.current_text_output,
             error_message: (error_msg if llm_status == 'llm_failed')
           }).compact
 
@@ -209,7 +211,7 @@ module Api
         evaluation.error_message = nil
 
         # Determine where the failure/stall likely occurred based on available artifacts
-        if evaluation.text_result.blank?
+        if evaluation.current_text_output.blank?
           # Failure/Stall likely in LLM step or before
           Rails.logger.info "--> Resetting to 'pending' and retrying LLM step for Evaluation ##{evaluation.id}"
           evaluation.status = 'pending' # Reset to initial state
@@ -236,7 +238,7 @@ module Api
 
       # --- Status Determination Helpers --- 
       def determine_llm_status(evaluation)
-        if evaluation.text_result.present?
+        if evaluation.current_text_output.present?
           'llm_complete'
         elsif evaluation.status == 'evaluating'
           'llm_processing'
@@ -250,7 +252,7 @@ module Api
       end
 
       def determine_tts_status(evaluation, skip_tts: false)
-        has_text = evaluation.text_result.present?
+        has_text = evaluation.current_text_output.present?
         has_audio = evaluation.audio_file.attached?
 
         if has_audio

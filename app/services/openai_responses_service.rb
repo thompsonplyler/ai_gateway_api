@@ -71,6 +71,51 @@ class OpenaiResponsesService
     post_request("responses", request_body)
   end
 
+  # Method for generating evaluation text
+  def generate_evaluation_text(generation_prompt:, instructions:, model: "gpt-4o", previous_response_id: nil)
+    schema_definition = OpenaiQuestSchemas::EVALUATION_GENERATION_SCHEMA
+    request_body = {
+      model: model,
+      input: generation_prompt, # This prompt should reference the file_id for the PPTX
+      instructions: instructions, # Agent-specific instructions
+      text: {
+        format: {
+          type: "json_schema",
+          name: "evaluation_generation_output",
+          schema: schema_definition,
+          strict: true
+        }
+      },
+      store: true # Store the response for potential chaining (e.g., refinement)
+    }
+    # previous_response_id is typically nil for the first generation step
+    request_body[:previous_response_id] = previous_response_id if previous_response_id.present?
+
+    post_request("responses", request_body)
+  end
+
+  # Method for supervising/reviewing evaluation text
+  def supervise_evaluation_text(evaluation_text_to_review:, generation_response_id:, instructions:, model: "gpt-4o")
+    schema_definition = OpenaiQuestSchemas::EVALUATION_SUPERVISION_SCHEMA
+    request_body = {
+      model: model,
+      input: evaluation_text_to_review, # The generated text from the previous step
+      instructions: instructions,        # Specific instructions for the supervisor AI
+      previous_response_id: generation_response_id, # Link to the original generation context
+      text: {
+        format: {
+          type: "json_schema",
+          name: "evaluation_supervision_output",
+          schema: schema_definition,
+          strict: true
+        }
+      },
+      store: true # Store the response for conversation history
+    }
+
+    post_request("responses", request_body)
+  end
+
   # Original simplified method (kept for reference or basic tests)
   def create_simple_response(prompt_text:, model: "gpt-4o")
     request_body = {

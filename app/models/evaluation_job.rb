@@ -78,7 +78,8 @@ class EvaluationJob < ApplicationRecord
     # Create placeholder Evaluation records for each agent.
     AGENT_IDENTIFIERS.each do |agent_id|
       # Use create! to raise an error if creation fails
-      evaluations.create!(agent_identifier: agent_id, status: 'pending')
+      # Relies on the default status 'pending_generation' from the Evaluation model
+      evaluations.create!(agent_identifier: agent_id)
     end
 
     # Update status and enqueue the initial processing job for each evaluation.
@@ -86,7 +87,7 @@ class EvaluationJob < ApplicationRecord
     update!(status: 'processing_evaluations')
     evaluations.each do |evaluation|
       # Ensure evaluation id is available before enqueuing
-      LlmEvaluationJob.perform_later(evaluation.id)
+      GenerateEvaluationJob.perform_later(evaluation.id) # Changed from LlmEvaluationJob
     end
   rescue ActiveRecord::RecordInvalid => e
     # Handle validation errors during Evaluation creation or status update
