@@ -122,6 +122,28 @@ class OpenaiResponsesService
     post_request("responses", request_body)
   end
 
+  # Method for generating a persona response
+  def generate_persona_response(prompt:, instructions:, model: "gpt-4o", previous_response_id: nil)
+    # PERSONA_RESPONSE_SCHEMA should be available from config/initializers/openai_persona_schemas.rb
+    request_body = {
+      model: model,
+      input: prompt,
+      instructions: instructions,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "persona_response_output", # Consistent naming convention
+          schema: OpenaiPersonaSchemas::PERSONA_RESPONSE_SCHEMA, # From initializer
+          strict: true
+        }
+      },
+      store: true # Store response for potential conversation chaining
+    }
+    request_body[:previous_response_id] = previous_response_id if previous_response_id.present?
+
+    post_request("responses", request_body)
+  end
+
   # Original simplified method (kept for reference or basic tests)
   def create_simple_response(prompt_text:, model: "gpt-4o")
     request_body = {

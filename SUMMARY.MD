@@ -67,6 +67,45 @@ This workflow generates in-game quest candidates through a generate-supervise-re
 **JSON Schemas:**
 *   Defined in `config/initializers/openai_quest_schemas.rb` for `QUEST_GENERATION_SCHEMA` and `SUPERVISOR_REVIEW_SCHEMA`.
 
+### 2.3. Song Lyrics Generation Workflow
+
+This workflow generates song lyrics based on a user-provided topic, then uses an AI supervisor to review and refine them through a generate-supervise-refine loop, similar to the Quest Generation workflow. It leverages the OpenAI Responses API for both generation and supervision, relying on structured JSON outputs.
+
+**Key Features & Flow:**
+*   **Initiation:** A `POST` request to `/api/v1/lyric_sets` (optionally with a `topic`) creates a `LyricSet` record and enqueues `GenerateLyricsJob`. A default topic is used if none is provided.
+*   **Initial Lyrics Generation (`GenerateLyricsJob`):**
+    *   Uses `OpenaiResponsesService.generate_lyrics` with the topic and predefined instructions.
+    *   AI generates lyrics and a suggested title, adhering to `LYRIC_GENERATION_SCHEMA`.
+    *   Lyrics are saved to `LyricSet#current_lyrics` and a new entry in `LyricSet#revision_history`.
+    *   Status becomes `pending_supervision`, and `SuperviseLyricsJob` is enqueued.
+*   **Lyrics Supervision (`SuperviseLyricsJob`):**
+    *   Uses `OpenaiResponsesService.supervise_lyrics`. An AI supervisor reviews lyrics against a detailed rubric (emotional resonance, depth, wordplay, thematic development).
+    *   Supervisor output adheres to `LYRIC_SUPERVISION_SCHEMA`, including scores, critique, approval status, and potentially a request to start over if quality is too low (`average_score` < 50).
+    *   Feedback is added to `revision_history`.
+    *   If a restart is requested, status becomes `pending_initial_generation`, `refinement_attempts` are reset, and `GenerateLyricsJob` is re-enqueued.
+    *   If lyrics are approved (`average_score` > 90), status becomes `approved`.
+    *   Otherwise, status becomes `needs_revision`, and `RefineLyricsJob` is enqueued.
+*   **Lyrics Refinement (`RefineLyricsJob`):**
+    *   Limited by `MAX_REFINEMENT_ATTEMPTS` (e.g., 5).
+    *   Uses `OpenaiResponsesService.generate_lyrics` with the previous lyrics, supervisor feedback, and specific refinement instructions. Context is maintained using `previous_response_id` from the supervision step.
+    *   Revised lyrics are saved, `refinement_attempts` incremented, and a new entry added to `revision_history`.
+    *   Status becomes `pending_supervision`, and `SuperviseLyricsJob` is re-enqueued.
+    *   The loop continues until approval, max attempts, or a restart.
+
+**Data Model:**
+*   `LyricSet`: Stores `topic`, `current_lyrics`, `status` (enum: `pending_initial_generation`, `pending_supervision`, `needs_revision`, `approved`), `refinement_attempts`, `approved_at`, and `revision_history` (jsonb array to track all versions, prompts, feedback, and scores).
+
+**Core Service:**
+*   `OpenaiResponsesService`: Includes `generate_lyrics` and `supervise_lyrics` methods tailored for this workflow, using the OpenAI `POST /v1/responses` endpoint and specific JSON schemas.
+
+**Background Jobs (Sidekiq):**
+*   `GenerateLyricsJob`: Handles initial lyric generation.
+*   `SuperviseLyricsJob`: Manages AI review of lyrics.
+*   `RefineLyricsJob`: Manages AI revision of lyrics based on feedback.
+
+**JSON Schemas:**
+*   Defined in `config/initializers/openai_lyric_schemas.rb` for `LYRIC_GENERATION_SCHEMA` and `LYRIC_SUPERVISION_SCHEMA`.
+
 ## 3. API Endpoints (Namespace: `/api/v1`)
 
 **Presentation Evaluation Workflow:**
@@ -82,6 +121,11 @@ This workflow generates in-game quest candidates through a generate-supervise-re
 *   `POST /quest_candidates/generate`: Triggers the `GenerateQuestCandidateJob`.
 *   `GET  /quest_candidates`: Lists all generated `QuestCandidate` records (supports pagination).
 *   `GET  /quest_candidates/:id`: Shows a specific `QuestCandidate` record.
+
+**Song Lyrics Generation Workflow:**
+*   `POST /lyric_sets`: Create a new lyric set and start generation (accepts an optional `topic`).
+*   `GET  /lyric_sets`: Lists all `LyricSet` records.
+*   `GET  /lyric_sets/:id`: Shows a specific `LyricSet` record, including its current status and history.
 
 **User Management & Authentication:**
 *   `POST /users`: User registration.
@@ -101,6 +145,7 @@ This workflow generates in-game quest candidates through a generate-supervise-re
 
 *   `config/initializers/agents.rb`: Defines agent characteristics for the Presentation Evaluation workflow.
 *   `config/initializers/openai_quest_schemas.rb`: Defines JSON schemas for the Quest Generation workflow.
+*   `config/initializers/openai_lyric_schemas.rb`: Defines JSON schemas for the Song Lyrics Generation workflow.
 *   `config/routes.rb`: Defines all API endpoints and the Sidekiq Web UI route (`/sidekiq`).
 *   `config/credentials.yml.enc`: Stores API keys for external services (OpenAI, ElevenLabs, Hedra). Prioritized for API key access within services.
 *   `config/database.yml`: PostgreSQL connection details.
@@ -134,10 +179,10 @@ This section consolidates insights gained during development, particularly usefu
 ## 6. How to Rebuild/Understand This Project
 
 1.  **Setup Basic Rails API**: `rails new ai_gateway_api --api -d postgresql`. Add `sidekiq`, `redis`, `faraday`.
-2.  **Define Models**: Create ActiveRecord models as described in section 2 (e.g., `EvaluationJob`, `Evaluation`, `QuestCandidate`, `User`, `ApiToken`, etc.) by generating migrations and defining associations/enums.
+2.  **Define Models**: Create ActiveRecord models as described in section 2 (e.g., `EvaluationJob`, `Evaluation`, `QuestCandidate`, `LyricSet`, `User`, `ApiToken`, etc.) by generating migrations and defining associations/enums.
 3.  **Configure External Services**: Set up `config/credentials.yml.enc` for OpenAI, ElevenLabs, Hedra API keys.
 4.  **Implement Core Services**: Create `OpenaiResponsesService` (and any other wrappers for ElevenLabs/Hedra).
 5.  **Develop API Controllers & Routes**: Implement controllers in `app/controllers/api/v1/` for each resource as listed in section 3, defining actions and JSON rendering. Set up `config/routes.rb`.
-6.  **Implement Background Jobs**: Create Sidekiq jobs for each asynchronous task (e.g., `LlmEvaluationJob`, `GenerateQuestCandidateJob`, etc.), detailing their API calls, data manipulation, status updates, and enqueuing of subsequent jobs.
-7.  **Add Configuration**: Create initializers like `agents.rb` and `openai_quest_schemas.rb`.
+6.  **Implement Background Jobs**: Create Sidekiq jobs for each asynchronous task (e.g., `LlmEvaluationJob`, `GenerateQuestCandidateJob`, `GenerateLyricsJob`, etc.), detailing their API calls, data manipulation, status updates, and enqueuing of subsequent jobs.
+7.  **Add Configuration**: Create initializers like `agents.rb`, `openai_quest_schemas.rb`, and `openai_lyric_schemas.rb`.
 8.  **Iteratively Test**: Use an API client (Postman) to test each endpoint and the full job workflows, monitoring Sidekiq and Rails logs closely.

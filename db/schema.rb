@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_05_14_184824) do
+ActiveRecord::Schema[7.1].define(version: 2025_05_19_183715) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -90,6 +90,19 @@ ActiveRecord::Schema[7.1].define(version: 2025_05_14_184824) do
     t.integer "refinement_attempts", default: 0
     t.datetime "approved_at"
     t.jsonb "revision_history"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "persona_interactions", force: :cascade do |t|
+    t.text "trigger_description"
+    t.text "initial_prompt"
+    t.string "personality_key"
+    t.integer "status"
+    t.text "generated_response"
+    t.jsonb "action_details"
+    t.string "current_api_response_id"
+    t.jsonb "conversation_history"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
   end

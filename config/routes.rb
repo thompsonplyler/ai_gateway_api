@@ -35,6 +35,9 @@ Rails.application.routes.draw do
 
       # Lyric Sets
       resources :lyric_sets, only: [:create, :show, :index]
+
+      # Persona Interactions
+      resources :persona_interactions, only: [:create, :show, :index]
     end
   end
 
