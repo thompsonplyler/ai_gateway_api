@@ -22,8 +22,8 @@ class LlmEvaluationJob < ApplicationJob
   RUN_POLL_INTERVAL = 5 # seconds
   RUN_TIMEOUT = 20 * 60 # 20 minutes (Increased from 10)
 
-  # Token limit for Assistant response
-  MAX_COMPLETION_TOKENS = 180 # Reduced from 250 to aim for ~135 words
+  # Token limit for Assistant response, standardized to the shortest agent requirement (100 words ~ 150 tokens)
+  MAX_COMPLETION_TOKENS = 150 # Previously 180, adjusted for 100-word target
 
   def perform(evaluation_id)
     Rails.logger.info "SIDEKIQ LlmEvaluationJob STARTING - Evaluation ID: #{evaluation_id}"

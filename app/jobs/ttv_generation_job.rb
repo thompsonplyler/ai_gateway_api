@@ -206,14 +206,15 @@ class TtvGenerationJob < ApplicationJob
       evaluation.update!(status: 'video_generated')
       Rails.logger.info "TTV generation complete for Evaluation ##{evaluation.id}. Checking job completion."
 
-      # Always check parent job completion after the final step
-      evaluation_job.check_completion
+      # Call the new method to check for combination or normal completion
+      evaluation_job.check_for_video_combination_or_completion
 
     rescue StandardError => e
       Rails.logger.error "Error in TtvGenerationJob for Evaluation ##{evaluation.id}: #{e.message}\n#{e.backtrace.join("\n")}"
       evaluation.processing_failed("Hedra processing failed: #{e.message}")
       # Check completion in case this failure finishes the job
-      evaluation_job.check_completion
+      # This should also call the new method to ensure consistent logic
+      evaluation_job.check_for_video_combination_or_completion if evaluation_job # Ensure evaluation_job is loaded
     end
   end
 end 

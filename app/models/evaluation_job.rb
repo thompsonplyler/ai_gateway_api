@@ -4,6 +4,7 @@ class EvaluationJob < ApplicationRecord
   # === ASSOCIATIONS ===
   has_one_attached :powerpoint_file # The original PPT file submitted
   has_many :evaluations, dependent: :destroy # Each job has multiple evaluation tasks (e.g., for different agents)
+  has_one_attached :combined_video_file # For the final combined video
 
   # === ATTRIBUTES ===
   # Status field to track progress
@@ -69,6 +70,31 @@ class EvaluationJob < ApplicationRecord
   rescue StandardError => e
       Rails.logger.error "Error during check_completion for EvaluationJob ##{id}: #{e.message}\n#{e.backtrace.join("\n")}"
       # Avoid failing the job just because the check failed - log and move on.
+  end
+
+  def check_for_video_combination_or_completion
+    reload # Ensure fresh data
+
+    # Don't proceed if already completed, failed, or in a combining state by other means
+    return if status.in?(['completed', 'failed', 'combining_videos'])
+
+    # Check if all evaluations have their individual videos generated
+    # This assumes 'video_generated' is the terminal status for a successful TTV step for an individual evaluation
+    all_videos_generated = evaluations.all? { |e| e.status == 'video_generated' }
+
+    if !skip_ttv? && all_videos_generated
+      Rails.logger.info "All individual videos generated for EvaluationJob ##{id}. Enqueuing CombineVideosJob."
+      update!(status: 'combining_videos') # New status to indicate combination is pending/in_progress
+      CombineVideosJob.perform_later(id)
+    else
+      # If not combining videos (either skipped or not all videos ready), proceed to normal completion check
+      Rails.logger.info "Not ready for video combination or TTV skipped for EvaluationJob ##{id}. Proceeding to normal completion check."
+      check_completion # Call the original completion logic
+    end
+  rescue StandardError => e
+    Rails.logger.error "Error during check_for_video_combination_or_completion for EvaluationJob ##{id}: #{e.message}\n#{e.backtrace.join("\n")}"
+    # Potentially update status to failed here if critical
+    # update(status: 'failed', error_message: "Error in pre-combination check: #{e.message.truncate(100)}")
   end
 
   private

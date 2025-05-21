@@ -1,3 +1,6 @@
+require 'tmpdir' # Required for Dir.mktmpdir
+require 'open3' # Required for Open3.capture3
+
 module Api
   module V1
     class EvaluationJobsController < ApplicationController
@@ -64,6 +67,10 @@ module Api
         end
         if @evaluation_job.powerpoint_file.attached?
           response_data[:uploaded_file_url] = url_for(@evaluation_job.powerpoint_file)
+        end
+        # Add combined video URL if present and job is in a state where it would be expected
+        if @evaluation_job.combined_video_file.attached?
+          response_data[:combined_video_url] = url_for(@evaluation_job.combined_video_file)
         end
 
         # Prepare arrays for detailed results
@@ -195,6 +202,105 @@ module Api
       rescue StandardError => e
         Rails.logger.error "Error retrying failed or stuck evaluations for Job ##{params[:id]}: #{e.message}\n#{e.backtrace.join("\n")}"
         render json: { error: 'An unexpected error occurred while retrying evaluations.' }, status: :internal_server_error
+      end
+
+      # GET /api/v1/evaluation_jobs/:id/test_combine_videos
+      def test_combine_videos
+        @evaluation_job = EvaluationJob.includes(evaluations: { video_file_attachment: :blob }).find(params[:id]) # Eager load for efficiency
+        
+        downloaded_video_info = [] # Store original filename and temp path
+
+        Dir.mktmpdir("ffmpeg-concat-#{@evaluation_job.id}-") do |temp_dir|
+          @evaluation_job.evaluations.order(:agent_identifier).each do |evaluation|
+            if evaluation.video_file.attached? # Basic check, refine with status later
+              blob = evaluation.video_file.blob
+              # Sanitize filename for ffmpeg or use a generic name if needed
+              safe_filename = blob.filename.to_s.gsub(/[^0-9A-Za-z.\-_]/, '') # Basic sanitization
+              temp_path = File.join(temp_dir, safe_filename)
+              
+              begin
+                File.open(temp_path, 'wb') { |file| blob.download { |chunk| file.write(chunk) } }
+                downloaded_video_info << { original_filename: blob.filename.to_s, temp_path: temp_path }
+                Rails.logger.info "Downloaded #{blob.filename} to #{temp_path} for job ##{@evaluation_job.id}"
+              rescue StandardError => e
+                Rails.logger.error "Failed to download video #{blob.filename} for job ##{@evaluation_job.id}: #{e.message}"
+                # Potentially render an error and return if a critical file fails
+              end
+            end
+          end
+
+          if downloaded_video_info.empty?
+            render json: { message: "No video files found or downloaded for EvaluationJob ##{@evaluation_job.id}" }, status: :not_found
+            return
+          end
+
+          # Create the concat list file
+          concat_list_path = File.join(temp_dir, "concat_list.txt")
+          File.open(concat_list_path, 'w') do |list_file|
+            downloaded_video_info.each do |video_info|
+              # ffmpeg requires relative paths from the list file if -safe 0 is used with relative paths in the list,
+              # or absolute paths. Using absolute paths for clarity here.
+              # Single quotes around file paths are good practice for ffmpeg input files.
+              list_file.puts "file '#{video_info[:temp_path]}'"
+            end
+          end
+          Rails.logger.info "Created concat list file at #{concat_list_path} for job ##{@evaluation_job.id}"
+
+          output_filename = "combined_job_#{@evaluation_job.id}.mp4"
+          output_path = File.join(temp_dir, output_filename)
+
+          # Construct and execute ffmpeg command
+          # Using -c copy assumes videos are compatible. If not, re-encoding is needed (remove -c copy).
+          ffmpeg_command = "ffmpeg -y -f concat -safe 0 -i \"#{concat_list_path}\" -c copy \"#{output_path}\""
+          Rails.logger.info "Executing ffmpeg for job ##{@evaluation_job.id}: #{ffmpeg_command}"
+
+          stdout_str, stderr_str, status = Open3.capture3(ffmpeg_command)
+
+          if status.success?
+            Rails.logger.info "ffmpeg combination successful for job ##{@evaluation_job.id}. Output at #{output_path}"
+            
+            # Attach the combined video to the EvaluationJob
+            @evaluation_job.combined_video_file.attach(
+              io: File.open(output_path),
+              filename: output_filename,
+              content_type: 'video/mp4' # Assuming mp4 output
+            )
+
+            if @evaluation_job.save
+              Rails.logger.info "Attached combined video to EvaluationJob ##{@evaluation_job.id}"
+              render json: { 
+                message: "ffmpeg combination successful and combined video attached for EvaluationJob ##{@evaluation_job.id}", 
+                status: @evaluation_job.status,
+                combined_video_url: url_for(@evaluation_job.combined_video_file),
+                ffmpeg_stdout: stdout_str,
+                ffmpeg_stderr: stderr_str
+              }, status: :ok
+            else
+              Rails.logger.error "Failed to save EvaluationJob ##{@evaluation_job.id} after attaching combined video: #{@evaluation_job.errors.full_messages.join(', ')}"
+              render json: { 
+                message: "ffmpeg combination successful BUT failed to attach video to EvaluationJob ##{@evaluation_job.id}",
+                errors: @evaluation_job.errors.full_messages,
+                ffmpeg_stderr: stderr_str,
+                ffmpeg_stdout: stdout_str
+              }, status: :internal_server_error
+            end
+          else
+            Rails.logger.error "ffmpeg combination FAILED for job ##{@evaluation_job.id}"
+            Rails.logger.error "ffmpeg STDERR: #{stderr_str}"
+            Rails.logger.error "ffmpeg STDOUT: #{stdout_str}"
+            render json: { 
+              message: "ffmpeg combination FAILED for EvaluationJob ##{@evaluation_job.id}",
+              error: "ffmpeg execution failed.",
+              ffmpeg_stderr: stderr_str,
+              ffmpeg_stdout: stdout_str
+            }, status: :internal_server_error
+          end
+        end # Temp directory and its contents are automatically removed here
+      rescue ActiveRecord::RecordNotFound
+        render json: { error: 'Evaluation job not found.' }, status: :not_found
+      rescue StandardError => e
+        Rails.logger.error "Error in test_combine_videos for EvaluationJob ##{params[:id]}: #{e.message}\n#{e.backtrace.join("\n")}"
+        render json: { error: 'An unexpected error occurred.' }, status: :internal_server_error
       end
 
       private
