@@ -23,6 +23,10 @@ module Api
         @evaluation_job.powerpoint_file.attach(uploaded_file)
 
         if @evaluation_job.save
+          Rails.logger.info "EvaluationJob ##{@evaluation_job.id} saved successfully."
+          Rails.logger.info "  File attached in controller after save? #{@evaluation_job.powerpoint_file.attached?}"
+          Rails.logger.info "  File blob ID after save: #{@evaluation_job.powerpoint_file.blob&.id}"
+          Rails.logger.info "  File blob key after save: #{@evaluation_job.powerpoint_file.blob&.key}"
           # The after_create_commit callback in the model will handle creating
           # child Evaluation records and enqueuing the LlmEvaluationJobs.
           render json: { 
@@ -69,10 +73,19 @@ module Api
 
         # Process each child Evaluation record
         @evaluation_job.evaluations.order(:agent_identifier).each do |evaluation|
+          Rails.logger.info "Processing for API response - Evaluation ID: #{evaluation.id}"
+          Rails.logger.info "  Raw DB text_result: '#{evaluation.text_result}'"
+          Rails.logger.info "  Raw DB status: '#{evaluation.status}'"
+
           # Pass the parent job flags to the status helpers
           llm_status = determine_llm_status(evaluation)
+          Rails.logger.info "  Determined LLM status: '#{llm_status}'"
+
           tts_status = determine_tts_status(evaluation, skip_tts: @evaluation_job.skip_tts)
+          Rails.logger.info "  Determined TTS status: '#{tts_status}' (skip_tts flag: #{@evaluation_job.skip_tts})"
+
           ttv_status = determine_ttv_status(evaluation, skip_tts: @evaluation_job.skip_tts, skip_ttv: @evaluation_job.skip_ttv)
+          Rails.logger.info "  Determined TTV status: '#{ttv_status}' (skip_ttv flag: #{@evaluation_job.skip_ttv})"
 
           # Common info for all sections related to this evaluation
           base_info = {
@@ -198,7 +211,7 @@ module Api
       def evaluation_job_params
         # Permit the skip flags along with any other creatable attributes
         # Ensure they are cast to boolean (Rails does this often automatically from form data/JSON)
-        params.permit(:skip_tts, :skip_ttv)
+        params.permit(:skip_tts, :skip_ttv, :powerpoint_file)
       end
 
       # Helper method to reset status and enqueue the correct job
@@ -253,16 +266,16 @@ module Api
         has_text = evaluation.text_result.present?
         has_audio = evaluation.audio_file.attached?
 
-        if has_audio
+        if skip_tts && has_text && evaluation.status != 'failed' # Prioritize this check
+           'tts_skipped' 
+        elsif has_audio
           'tts_complete'
-        elsif evaluation.status == 'generating_audio'
+        elsif evaluation.status == 'generating_audio' # This now means actual processing, not skipped
           'tts_processing'
         elsif evaluation.status == 'failed' && !has_audio && has_text
           'tts_failed'
-        elsif skip_tts && has_text && evaluation.status != 'failed' # If TTS was skipped
-           'tts_skipped' 
         elsif has_text && !has_audio && evaluation.status != 'failed'
-          'tts_pending' # Means LLM is done, waiting for TTS
+          'tts_pending' 
         elsif !has_text && evaluation.status != 'failed'
           'tts_awaiting_llm'
         else

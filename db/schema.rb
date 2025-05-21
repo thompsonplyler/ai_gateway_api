@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_05_13_235446) do
+ActiveRecord::Schema[7.1].define(version: 2025_05_21_185151) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -75,12 +75,43 @@ ActiveRecord::Schema[7.1].define(version: 2025_05_13_235446) do
   create_table "evaluations", force: :cascade do |t|
     t.bigint "evaluation_job_id", null: false
     t.string "agent_identifier"
-    t.text "text_result"
     t.string "status"
     t.text "error_message"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "supervisor_status"
+    t.integer "revision_attempts"
+    t.text "raw_text_output"
+    t.text "current_text_output"
+    t.string "llm_api_response_id"
+    t.text "supervisor_feedback"
+    t.string "supervisor_llm_api_response_id"
+    t.text "text_result"
     t.index ["evaluation_job_id"], name: "index_evaluations_on_evaluation_job_id"
+  end
+
+  create_table "lyric_sets", force: :cascade do |t|
+    t.text "topic"
+    t.text "current_lyrics"
+    t.integer "status", default: 0
+    t.integer "refinement_attempts", default: 0
+    t.datetime "approved_at"
+    t.jsonb "revision_history"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "persona_interactions", force: :cascade do |t|
+    t.text "trigger_description"
+    t.text "initial_prompt"
+    t.string "personality_key"
+    t.integer "status"
+    t.text "generated_response"
+    t.jsonb "action_details"
+    t.string "current_api_response_id"
+    t.jsonb "conversation_history"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
   end
 
   create_table "quest_candidates", force: :cascade do |t|

@@ -26,6 +26,9 @@ class LlmEvaluationJob < ApplicationJob
   MAX_COMPLETION_TOKENS = 250
 
   def perform(evaluation_id)
+    Rails.logger.info "SIDEKIQ LlmEvaluationJob STARTING - Evaluation ID: #{evaluation_id}"
+    Rails.logger.info "SIDEKIQ DB CONFIG: #{ActiveRecord::Base.connection_db_config.configuration_hash.inspect}"
+
     evaluation = Evaluation.find_by(id: evaluation_id)
     unless evaluation
       Rails.logger.warn "LlmEvaluationJob: Evaluation ##{evaluation_id} not found. Skipping."
@@ -105,32 +108,40 @@ class LlmEvaluationJob < ApplicationJob
       Rails.logger.info "Thread created (ID: #{thread_id}) for Evaluation ##{evaluation.id}"
 
       # 3. Add a Message to the Thread, attaching the file
+      Rails.logger.info "Attempting to add message to thread #{thread_id} for Evaluation ##{evaluation.id}"
       message_content = "Please evaluate the attached presentation according to your specific instructions."
+      message_params = {
+        role: "user",
+        content: message_content,
+        attachments: [
+          { file_id: file_id, tools: [{ type: "file_search" }] }
+        ]
+      }
+      Rails.logger.debug "Message parameters for thread #{thread_id}: #{message_params.inspect}"
       client.messages.create(
         thread_id: thread_id,
-        parameters: {
-          role: "user",
-          content: message_content,
-          attachments: [
-            { file_id: file_id, tools: [{ type: "file_search" }] }
-          ]
-        }
+        parameters: message_params
       )
-      Rails.logger.info "Message added to thread #{thread_id} for Evaluation ##{evaluation.id}"
+      Rails.logger.info "Message successfully added to thread #{thread_id} for Evaluation ##{evaluation.id}"
 
       # 4. Create a Run, providing agent-specific instructions and token limits
+      Rails.logger.info "Attempting to create Run for thread #{thread_id}, assistant #{assistant_id}, Evaluation ##{evaluation.id}"
+      run_params = {
+        assistant_id: assistant_id,
+        instructions: agent_instructions, # Override/add personality here
+        max_completion_tokens: MAX_COMPLETION_TOKENS
+      }
+      Rails.logger.debug "Run parameters for thread #{thread_id}: #{run_params.inspect}"
       run_response = client.runs.create(
         thread_id: thread_id,
-        parameters: {
-          assistant_id: assistant_id,
-          instructions: agent_instructions, # Override/add personality here
-          max_completion_tokens: MAX_COMPLETION_TOKENS
-        }
+        parameters: run_params
       )
       run_id = run_response['id']
       Rails.logger.info "Run created (ID: #{run_id}, Max Tokens: #{MAX_COMPLETION_TOKENS}) for Evaluation ##{evaluation.id}"
+      Rails.logger.info "Run response details: #{run_response.inspect}"
 
       # 5. Poll for Run completion
+      Rails.logger.info "Starting polling loop for Run ##{run_id} (Eval ##{evaluation.id})"
       start_time = Time.now
       loop do
         run = client.runs.retrieve(thread_id: thread_id, id: run_id)
@@ -142,11 +153,13 @@ class LlmEvaluationJob < ApplicationJob
           break # Exit loop
         when 'requires_action'
           # Handle function calls if you add them later, for now, we fail.
+          Rails.logger.warn "Run ##{run_id} requires action. Evaluation ##{evaluation.id}. Run details: #{run.inspect}"
           evaluation.processing_failed("Run ##{run_id} requires unexpected action.")
           # Clean up uploaded file? Maybe not if retryable.
           return
         when 'failed', 'cancelled', 'expired'
           error_message = run.dig('last_error', 'message') || "Run #{run['status']}"
+          Rails.logger.error "Run ##{run_id} #{run['status']}. Error: #{error_message}. Evaluation ##{evaluation.id}. Run details: #{run.inspect}"
           evaluation.processing_failed("Run ##{run_id} #{run['status']}: #{error_message}")
           # Clean up uploaded file?
           # client.files.delete(file_id: file_id) rescue nil # Best effort cleanup
@@ -155,6 +168,7 @@ class LlmEvaluationJob < ApplicationJob
 
         # Timeout check
         if Time.now - start_time > RUN_TIMEOUT
+          Rails.logger.error "Run ##{run_id} timed out for Evaluation ##{evaluation.id}. Run details: #{run.inspect}"
           evaluation.processing_failed("Run ##{run_id} timed out after #{RUN_TIMEOUT} seconds.")
           # Attempt cancellation?
           # client.runs.cancel(thread_id: thread_id, id: run_id) rescue nil
@@ -166,27 +180,44 @@ class LlmEvaluationJob < ApplicationJob
       end
 
       # 6. Retrieve the Assistant's response Message
+      Rails.logger.info "Attempting to retrieve messages for thread #{thread_id} (Run ##{run_id}, Eval ##{evaluation.id})"
       messages_response = client.messages.list(thread_id: thread_id, parameters: { order: 'desc' })
+      Rails.logger.info "Full messages_response for thread #{thread_id}: #{messages_response.inspect}" # More visible log
       assistant_message = messages_response['data'].find { |m| m['role'] == 'assistant' }
+      Rails.logger.info "Assistant message object for thread #{thread_id}: #{assistant_message.inspect}"
 
       if assistant_message && assistant_message['content'].present?
-        # Content is an array, join text values if multiple blocks
         text_result = assistant_message['content']
                         .select { |c| c['type'] == 'text' }
                         .map { |c| c.dig('text', 'value') }
                         .join("\n")
                         .strip
+        Rails.logger.info "Extracted text_result (first 100 chars): '#{text_result.truncate(100)}' for Eval ##{evaluation.id}"
 
         if text_result.blank?
-          evaluation.processing_failed("Assistant message was empty.")
+          Rails.logger.warn "Assistant message was present but extracted text_result is blank. Eval ##{evaluation.id}"
+          evaluation.processing_failed("Assistant message was empty after extraction.")
         else
-          # Determine the status to set based on whether the next step is skipped.
-          # If TTS is skipped, the successful completion of LLM means this eval 
-          # reaches the state it *would* be in just before TTS.
           final_status = evaluation_job.skip_tts? ? 'generating_audio' : 'generating_audio'
           
-          evaluation.update!(text_result: text_result, status: final_status)
-          Rails.logger.info "LLM evaluation complete for Evaluation ##{evaluation.id}."
+          Rails.logger.info "DIAGNOSTIC SAVE ATTEMPT for Evaluation ##{evaluation.id}:"
+          Rails.logger.info "  Attempting to save status: '#{final_status}'"
+          evaluation.update_column(:status, final_status) # Skip callbacks/validations for status
+          evaluation.reload
+          Rails.logger.info "  POST status update_column: DB status is: '#{evaluation.status}'"
+
+          Rails.logger.info "  Attempting to save text_result (first 100 chars): '#{text_result.truncate(100)}'"
+          evaluation.update_column(:text_result, text_result) # Skip callbacks/validations for text_result
+          evaluation.reload
+          Rails.logger.info "  POST text_result update_column: DB text_result starts with: '#{evaluation.text_result&.truncate(100)}'"
+
+          # Original update logic - commented out for diagnostic
+          # Rails.logger.info "PRE-UPDATE for Evaluation ##{evaluation.id}: Attempting to save text_result starting with: '#{text_result.truncate(100)}', status: '#{final_status}'"
+          # evaluation.update!(text_result: text_result, status: final_status)
+          # evaluation.reload 
+          # Rails.logger.info "POST-UPDATE for Evaluation ##{evaluation.id}: DB text_result starts with: '#{evaluation.text_result&.truncate(100)}', DB status is: '#{evaluation.status}'"
+
+          Rails.logger.info "LLM evaluation complete for Evaluation ##{evaluation.id}. (used update_column for diagnostics)"
 
           # Check completion or enqueue next job
           if evaluation_job.skip_tts?
@@ -198,6 +229,7 @@ class LlmEvaluationJob < ApplicationJob
           end
         end
       else
+        Rails.logger.warn "Could not find assistant message or content was blank in thread ##{thread_id}. Eval ##{evaluation.id}. Response: #{messages_response.inspect}"
         evaluation.processing_failed("Could not find assistant message in thread ##{thread_id}. Response: #{messages_response.inspect}")
       end
 
@@ -222,10 +254,14 @@ class LlmEvaluationJob < ApplicationJob
         evaluation_job.check_completion
       end
     rescue StandardError => e # Catch other unexpected errors
-      Rails.logger.error "Unexpected error in LlmEvaluationJob for Evaluation ##{evaluation.id}: #{e.message}\n#{e.backtrace.join("\n")}"
-      evaluation.processing_failed("Unexpected error: #{e.message}")
-      evaluation_job = evaluation.evaluation_job # Fetch parent if not already loaded
-      evaluation_job.check_completion
+      Rails.logger.error "Unhandled StandardError in LlmEvaluationJob for Evaluation ##{evaluation&.id || evaluation_id}: #{e.message}"
+      Rails.logger.error "Error backtrace: \n#{e.backtrace.join("\n")}"
+      if evaluation
+        evaluation.processing_failed("Critical error in LlmEvaluationJob: #{e.message}")
+      end
+      # Ensure check_completion is called even on unexpected error if evaluation_job is available
+      evaluation&.evaluation_job&.check_completion
+      raise # Re-raise the error to allow Sidekiq to handle retries/dead job queue based on its config
     end
   end
 
